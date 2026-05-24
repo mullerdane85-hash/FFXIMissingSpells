@@ -69,17 +69,22 @@ still need" list. The filter lives in `is_unity_concord()` at the top of
 the Data section; remove the call from `all_trusts()` if you want them
 back.
 
-## Trust → job table + battle role/style
+## Trust → job table + role
 
 Two editable Lua tables at the top of `FFXIMissingTrust.lua`:
 
-- **`JOB_BY_TRUST`** — combat job tag (SMN, WHM, PLD, etc.). Entries
-  showing `[?]` were ones I wasn't 100% sure of (the five `AA*` Ark Angel
-  trusts in particular).
-- **`DESC_BY_TRUST`** — short `Role: style` descriptor. Role is one of
-  Tank / Healer / Support / Caster / Ranged / Melee / Special (BG-Wiki's
-  trust categorization). Style is a 3-7 word note about what makes that
-  trust useful.
+- **`JOB_BY_TRUST`** — combat job tag (WHM, PLD, etc.). Note that there
+  are **no SMN trusts** in FFXI — anyone tagged SMN is a typo.
+- **`DESC_BY_TRUST`** — short role descriptor. Format is one of:
+  - `Tank`
+  - `Healer`
+  - `DPS Melee <weapon>` (H2H, Sword, GA, GS, Scythe, Dagger, Katana,
+    GK, Polearm, Axe, Club, Staff)
+  - `DPS Ranged <weapon>` (Bow, Gun)
+  - `DPS Magic`
+  - `Support` (alone for generic support)
+  - `Support <aura>` for specific aura (e.g. `Support Honor March`,
+    `Support Refresh`, `Support Haste II/Refresh II`)
 
 Both tables are alphabetical and easy to update. Fix any wrong entries,
 `//lua reload FFXIMissingTrust`, and push the change so it lands for
