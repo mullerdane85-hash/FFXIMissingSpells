@@ -36,6 +36,146 @@ local settings = config.load(defaults)
 config.save(settings)
 
 -- ---------------------------------------------------------------------------
+-- Trust → Job mapping
+--
+-- FFXI's spell data doesn't expose which combat job each trust represents
+-- (the `jobs` field on spells.lua is the list of jobs that can CAST it, and
+-- for trusts that's effectively all jobs at level 1). So we hardcode the
+-- association here. Entries with "?" are obscure / Voidwatch trusts whose
+-- in-game job I'm not 100% sure of — feel free to edit this table.
+--
+-- This is in alphabetical order to make it easy to update.
+-- ---------------------------------------------------------------------------
+local JOB_BY_TRUST = {
+    -- AA-prefix trusts (Vagary "Five Atma Avatars" — best-effort)
+    ["AAEV"]             = "?",
+    ["AAGK"]             = "?",
+    ["AAHM"]             = "?",
+    ["AAMR"]             = "?",
+    ["AATT"]             = "?",
+
+    ["Abenzio"]          = "THF",
+    ["Abquhbah"]         = "WAR",
+    ["Adelheid"]         = "SMN",
+    ["Ajido-Marujido"]   = "BLM",
+    ["Aldo"]             = "THF",
+    ["Aldo (UC)"]        = "THF",
+    ["Amchuchu"]         = "RUN",
+    ["Apururu (UC)"]     = "WHM",
+    ["Arciela"]          = "RDM",
+    ["Arciela II"]       = "RDM",
+    ["Areuhat"]          = "DRK",
+    ["August"]           = "PLD",
+    ["Ayame"]            = "SAM",
+    ["Ayame (UC)"]       = "SAM",
+    ["Babban"]           = "DNC",
+    ["Balamor"]          = "DRK",
+    ["Brygid"]           = "WHM",
+    ["Chacharoon"]       = "THF",
+    ["Cherukiki"]        = "WHM",
+    ["Cid"]              = "WAR",
+    ["Cornelia"]         = "MNK",
+    ["Curilla"]          = "PLD",
+    ["D. Shantotto"]     = "BLM",
+    ["Darrcuiln"]        = "WAR",
+    ["Elivira"]          = "RDM",
+    ["Excenmille"]       = "PLD",
+    ["Excenmille [S]"]   = "PLD",
+    ["Fablinix"]         = "THF",
+    ["Ferreous Coffin"]  = "WHM",
+    ["Flaviria (UC)"]    = "DRG",
+    ["Gadalar"]          = "BLM",
+    ["Gessho"]           = "NIN",
+    ["Gilgamesh"]        = "SAM",
+    ["Halver"]           = "PLD",
+    ["I. Shield (UC)"]   = "PLD",
+    ["Ingrid"]           = "PLD",
+    ["Ingrid II"]        = "PLD",
+    ["Iroha"]            = "SAM",
+    ["Iroha II"]         = "SAM",
+    ["Iron Eater"]       = "WAR",
+    ["Jakoh (UC)"]       = "WAR",
+    ["Joachim"]          = "BRD",
+    ["Karaha-Baruha"]    = "WHM",
+    ["Kayeel-Payeel"]    = "BLM",
+    ["King of Hearts"]   = "PLD",
+    ["Klara"]            = "WAR",
+    ["Koru-Moru"]        = "RDM",
+    ["Kukki-Chebukki"]   = "THF",
+    ["Kupipi"]           = "WHM",
+    ["Kupofried"]        = "GEO",
+    ["Kuyin Hathdenna"]  = "DRG",
+    ["Lehko Habhoka"]    = "THF",
+    ["Leonoyne"]         = "DRG",
+    ["Lhe Lhangavo"]     = "MNK",
+    ["Lhu Mhakaracca"]   = "BST",
+    ["Lilisette"]        = "DNC",
+    ["Lilisette II"]     = "DNC",
+    ["Lion"]             = "THF",
+    ["Lion II"]          = "THF",
+    ["Luzaf"]            = "COR",
+    ["Maat"]             = "MNK",
+    ["Maat (UC)"]        = "MNK",
+    ["Makki-Chebukki"]   = "THF",
+    ["Margret"]          = "RNG",
+    ["Matsui-P"]         = "GEO",
+    ["Maximilian"]       = "PLD",
+    ["Mayakov"]          = "DNC",
+    ["Mihli Aliapoh"]    = "WHM",
+    ["Mildaurion"]       = "WHM",
+    ["Mnejing"]          = "WAR",
+    ["Monberaux"]        = "WHM",
+    ["Moogle"]           = "RDM",
+    ["Morimar"]          = "BST",
+    ["Mumor"]            = "DNC",
+    ["Mumor II"]         = "BRD",
+    ["Naja (UC)"]        = "WAR",
+    ["Naja Salaheem"]    = "WAR",
+    ["Najelith"]         = "RNG",
+    ["Naji"]             = "THF",
+    ["Nanaa Mihgo"]      = "THF",
+    ["Nashmeira"]        = "WHM",
+    ["Nashmeira II"]     = "PUP",
+    ["Noillurie"]        = "WHM",
+    ["Ovjang"]           = "RDM",
+    ["Pieuje (UC)"]      = "WHM",
+    ["Prishe"]           = "MNK",
+    ["Prishe II"]        = "MNK",
+    ["Qultada"]          = "COR",
+    ["Rahal"]            = "PLD",
+    ["Rainemard"]        = "RDM",
+    ["Robel-Akbel"]      = "BLM",
+    ["Romaa Mihgo"]      = "THF",
+    ["Rongelouts"]       = "PLD",
+    ["Rosulatia"]        = "SCH",
+    ["Rughadjeen"]       = "PLD",
+    ["Sakura"]           = "NIN",
+    ["Selh'teus"]        = "SMN",
+    ["Semih Lafihna"]    = "RNG",
+    ["Shantotto"]        = "BLM",
+    ["Shantotto II"]     = "BLM",
+    ["Shikaree Z"]       = "RNG",
+    ["Star Sibyl"]       = "WHM",
+    ["Sylvie (UC)"]      = "GEO",
+    ["Tenzen"]           = "SAM",
+    ["Tenzen II"]        = "SAM",
+    ["Teodor"]           = "BLM",
+    ["Trion"]            = "PLD",
+    ["Uka Totlihn"]      = "DNC",
+    ["Ullegore"]         = "DRK",
+    ["Ulmia"]            = "BRD",
+    ["Valaineral"]       = "PLD",
+    ["Volker"]           = "WAR",
+    ["Ygnas"]            = "WAR",
+    ["Yoran-Oran (UC)"]  = "WHM",
+    ["Zazarg"]           = "MNK",
+    ["Zeid"]             = "DRK",
+    ["Zeid II"]          = "DRK",
+}
+
+local function trust_job(name) return JOB_BY_TRUST[name] or "?" end
+
+-- ---------------------------------------------------------------------------
 -- Visual constants — match GSUI's look
 -- ---------------------------------------------------------------------------
 local BORDER       = 3
@@ -46,7 +186,7 @@ local SUMMARY_H    = 26
 local ROW_H        = 18
 local SCROLL_BTN_H = 20
 local PAD          = 8
-local PANEL_W      = 320
+local PANEL_W      = 380
 local VISIBLE_ROWS = 22
 
 -- Colors (alpha, r, g, b)
@@ -175,7 +315,9 @@ local function cmd_list_chat()
         return
     end
     chat(CHAT_HEADER, string.format('[MissingTrust] %d trusts still needed:', #missing))
-    for _, t in ipairs(missing) do chat(CHAT_MISSING, '  - ' .. t.name) end
+    for _, t in ipairs(missing) do
+        chat(CHAT_MISSING, string.format('  - %-22s [%s]', t.name, trust_job(t.name)))
+    end
 end
 
 local function cmd_have_chat()
@@ -185,7 +327,9 @@ local function cmd_have_chat()
         return
     end
     chat(CHAT_HEADER, string.format('[MissingTrust] %d trusts learned:', #owned))
-    for _, t in ipairs(owned) do chat(CHAT_OWNED, '  + ' .. t.name) end
+    for _, t in ipairs(owned) do
+        chat(CHAT_OWNED, string.format('  + %-22s [%s]', t.name, trust_job(t.name)))
+    end
 end
 
 local function cmd_find_chat(query)
@@ -200,8 +344,12 @@ local function cmd_find_chat(query)
     for _, t in ipairs(all_trusts()) do
         if t.name:lower():find(query, 1, true) then
             hits = hits + 1
-            if known[t.id] then chat(CHAT_OWNED,   '  + ' .. t.name .. '   (learned)')
-            else                chat(CHAT_MISSING, '  - ' .. t.name .. '   (missing)') end
+            local job = trust_job(t.name)
+            if known[t.id] then
+                chat(CHAT_OWNED,   string.format('  + %-22s [%s]   (learned)', t.name, job))
+            else
+                chat(CHAT_MISSING, string.format('  - %-22s [%s]   (missing)', t.name, job))
+            end
         end
     end
     if hits == 0 then chat(CHAT_ITEM, '  (no trusts match)') end
@@ -234,7 +382,7 @@ end
 
 local function destroy_window()
     for _, e in pairs(ui.el)   do destroy(e) end
-    for _, r in ipairs(ui.rows) do destroy(r.bg); destroy(r.text) end
+    for _, r in ipairs(ui.rows) do destroy(r.bg); destroy(r.text); destroy(r.job) end
     ui.el = {}
     ui.rows = {}
     ui.rect = {}
@@ -312,6 +460,10 @@ local function build_window()
         ui.el.empty = make_text(msg, row_x, list_y0 + 4, C_OWNED, 11)
     end
 
+    -- Job column lives at a fixed offset from the right edge of the body
+    local JOB_COL_OFFSET = 50    -- pixels from right edge of body for job tag
+    local job_col_x = tb_x + tb_w - PAD - JOB_COL_OFFSET
+
     for i = 1, visible do
         local data_idx = ui.scroll + i
         local entry = rows[data_idx]
@@ -332,8 +484,9 @@ local function build_window()
                 color = known[entry.id] and C_OWNED or C_MISSING
                 prefix = known[entry.id] and '+ ' or '- '
             end
-            local row_txt = make_text(prefix .. entry.name, row_x, ry + 2, color, 10)
-            table.insert(ui.rows, { bg = row_bg, text = row_txt })
+            local name_text = make_text(prefix .. entry.name, row_x, ry + 2, color, 10)
+            local job_text  = make_text(trust_job(entry.name), job_col_x, ry + 2, C_SUMMARY, 10, true)
+            table.insert(ui.rows, { bg = row_bg, text = name_text, job = job_text })
         end
     end
 
@@ -372,6 +525,7 @@ local function build_window()
     for _, r in ipairs(ui.rows) do
         if r.bg then show(r.bg) end
         show(r.text)
+        if r.job then show(r.job) end
     end
 end
 

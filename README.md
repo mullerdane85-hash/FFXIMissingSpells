@@ -57,10 +57,21 @@ Aliases: `//missingtrust` and `//mtrust` both work. Short forms `t`, `w`, `s`,
 - Compares each spell ID against `windower.ffxi.get_spells()` — the
   character's actual spell book
 - Anything in the master list that's NOT in the spell book is missing
+- Each trust is annotated with its in-combat job (SMN, WHM, PLD, etc.)
+  from a hardcoded table at the top of `FFXIMissingTrust.lua`. FFXI's
+  spell data doesn't expose this directly, so the table is editable —
+  fix any wrong entries and submit a PR.
 
 The Unity Concord variants (e.g. `Yoran-Oran` vs `Yoran-Oran (UC)`) are
 separate spells and listed independently — each one is its own spell ID
 that must be learned separately.
+
+## Trust → job table
+
+The mapping lives at the top of `FFXIMissingTrust.lua` in a single Lua
+table called `JOB_BY_TRUST`. Entries showing `[?]` in the UI are ones I
+wasn't 100% sure of (the five `AA*` Voidwatch trusts in particular). If
+you know the right job, edit the table — no other code changes needed.
 
 ## Visual style
 
