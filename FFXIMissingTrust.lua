@@ -252,10 +252,18 @@ end
 -- Data
 -- ---------------------------------------------------------------------------
 
+-- Unity Concord (UC) trusts are awarded via Unity rank with their respective
+-- leader, NOT via ciphers / quests / the regular trust acquisition path. They
+-- don't belong in a "what trusts do I still need" list — filter them out at
+-- the source so Missing / Owned / All views and the count are all consistent.
+local function is_unity_concord(spell_name)
+    return spell_name:find('%(UC%)') ~= nil
+end
+
 local function all_trusts()
     local out = {}
     for id, spell in pairs(res.spells) do
-        if spell.type == 'Trust' then
+        if spell.type == 'Trust' and not is_unity_concord(spell.en) then
             table.insert(out, { id = id, name = spell.en })
         end
     end

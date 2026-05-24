@@ -62,9 +62,12 @@ Aliases: `//missingtrust` and `//mtrust` both work. Short forms `t`, `w`, `s`,
   spell data doesn't expose this directly, so the table is editable —
   fix any wrong entries and submit a PR.
 
-The Unity Concord variants (e.g. `Yoran-Oran` vs `Yoran-Oran (UC)`) are
-separate spells and listed independently — each one is its own spell ID
-that must be learned separately.
+**Unity Concord (UC) trusts are excluded** from every view. They're awarded
+via Unity rank with their respective UC leader, not via ciphers / quests /
+the normal trust-acquisition path — so they don't belong in a "what do I
+still need" list. The filter lives in `is_unity_concord()` at the top of
+the Data section; remove the call from `all_trusts()` if you want them
+back.
 
 ## Trust → job table
 
