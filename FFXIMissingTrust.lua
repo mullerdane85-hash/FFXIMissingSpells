@@ -417,23 +417,48 @@ local function scroll_by(delta)
     refresh_window()
 end
 
+-- Windower mouse event types (verified from GSUI's handler):
+--   0  = mouse move
+--   1  = left button down
+--   2  = left button up
+--   3  = right button down
+--   4  = right button up
+--   5  = middle button down
+--   6  = middle button up
+--   10 = scroll wheel  (delta > 0 = up, delta < 0 = down)
 windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     if not settings.visible then return false end
     if blocked then return false end
-    if not is_over_window(x, y) then return false end
 
-    -- mtype: 1=move, 2=lmb_down, 3=lmb_up, 4=mmb_down, 5=mmb_up, 6=rmb_down,
-    -- 7=rmb_up, 8=mouse_drag, 9=mwheel (delta = direction)
-    if mtype == 1 then
+    -- Mouse MOVE — follow the drag even if the cursor leaves the window
+    -- bounds; otherwise a fast drag would "lose" the window when the
+    -- cursor outraces the redraw.
+    if mtype == 0 then
         if ui.drag then
             settings.pos.x = x - ui.drag.dx
             settings.pos.y = y - ui.drag.dy
-            build_window()  -- redraw at new pos
+            build_window()
+            return true
         end
-        return true
-    elseif mtype == 2 then  -- LMB down
+        return is_over_window(x, y)  -- swallow hovers over our window only
+    end
+
+    -- LMB UP — release the drag regardless of cursor position
+    if mtype == 2 then
+        if ui.drag then
+            ui.drag = nil
+            config.save(settings)
+            return true
+        end
+        return is_over_window(x, y)
+    end
+
+    -- The remaining events only apply when the cursor is over the window
+    if not is_over_window(x, y) then return false end
+
+    -- LMB DOWN — tab click, scroll buttons, or start drag
+    if mtype == 1 then
         if in_rect(x, y, ui.rect.title_bar) then
-            -- Check if click is on a tab first, otherwise start drag
             for _, key in ipairs({'missing','owned','all'}) do
                 if in_rect(x, y, ui.rect['tab_' .. key]) then
                     if settings.mode ~= key then
@@ -445,28 +470,29 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
                     return true
                 end
             end
+            -- Title bar but not a tab — start drag
             ui.drag = { dx = x - settings.pos.x, dy = y - settings.pos.y }
             return true
-        elseif in_rect(x, y, ui.rect.scroll_up) and ui.rect.scroll_up.enabled then
-            scroll_by(-VISIBLE_ROWS / 2)
-            return true
-        elseif in_rect(x, y, ui.rect.scroll_dn) and ui.rect.scroll_dn.enabled then
-            scroll_by(VISIBLE_ROWS / 2)
+        end
+
+        if ui.rect.scroll_up and in_rect(x, y, ui.rect.scroll_up) and ui.rect.scroll_up.enabled then
+            scroll_by(-math.floor(VISIBLE_ROWS / 2))
             return true
         end
-        return true  -- swallow click anywhere over the window
-    elseif mtype == 3 then  -- LMB up
-        if ui.drag then
-            ui.drag = nil
-            config.save(settings)
+        if ui.rect.scroll_dn and in_rect(x, y, ui.rect.scroll_dn) and ui.rect.scroll_dn.enabled then
+            scroll_by(math.floor(VISIBLE_ROWS / 2))
+            return true
         end
-        return true
-    elseif mtype == 9 then  -- mouse wheel
+        return true  -- swallow stray clicks on the panel
+    end
+
+    -- SCROLL WHEEL — delta > 0 means wheel-up (scroll list up = earlier items)
+    if mtype == 10 then
         scroll_by(delta > 0 and -3 or 3)
         return true
     end
 
-    return true  -- block all other mouse events that land on the window
+    return true  -- block right-click etc. when over the window so it doesn't rotate the camera
 end)
 
 -- ---------------------------------------------------------------------------
