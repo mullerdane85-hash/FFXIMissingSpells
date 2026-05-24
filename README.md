@@ -69,12 +69,21 @@ still need" list. The filter lives in `is_unity_concord()` at the top of
 the Data section; remove the call from `all_trusts()` if you want them
 back.
 
-## Trust → job table
+## Trust → job table + battle role/style
 
-The mapping lives at the top of `FFXIMissingTrust.lua` in a single Lua
-table called `JOB_BY_TRUST`. Entries showing `[?]` in the UI are ones I
-wasn't 100% sure of (the five `AA*` Voidwatch trusts in particular). If
-you know the right job, edit the table — no other code changes needed.
+Two editable Lua tables at the top of `FFXIMissingTrust.lua`:
+
+- **`JOB_BY_TRUST`** — combat job tag (SMN, WHM, PLD, etc.). Entries
+  showing `[?]` were ones I wasn't 100% sure of (the five `AA*` Ark Angel
+  trusts in particular).
+- **`DESC_BY_TRUST`** — short `Role: style` descriptor. Role is one of
+  Tank / Healer / Support / Caster / Ranged / Melee / Special (BG-Wiki's
+  trust categorization). Style is a 3-7 word note about what makes that
+  trust useful.
+
+Both tables are alphabetical and easy to update. Fix any wrong entries,
+`//lua reload FFXIMissingTrust`, and push the change so it lands for
+everyone.
 
 ## Visual style
 

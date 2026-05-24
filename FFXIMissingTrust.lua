@@ -176,6 +176,141 @@ local JOB_BY_TRUST = {
 local function trust_job(name) return JOB_BY_TRUST[name] or "?" end
 
 -- ---------------------------------------------------------------------------
+-- Trust → Battle role + style descriptor
+--
+-- Role categories follow BG-Wiki's trust-by-role classification:
+--   Tank     — pulls / holds enmity
+--   Healer   — primary cure / status removal
+--   Support  — buffs (BRD, COR, GEO, RDM-as-buffer)
+--   Caster   — magical DPS (BLM-likes, BLU-likes)
+--   Ranged   — bow / gun DPS
+--   Melee    — physical DPS (default for most fighters)
+--   Special  — unique behavior that doesn't fit the others
+--
+-- Style is a 3-7 word note about what makes that specific trust useful.
+-- Source: https://www.bg-wiki.com/ffxi/BGWiki:Trusts and individual trust
+-- pages. Some battle-style summaries are best-effort; edit as you learn
+-- more about how a given trust actually plays.
+-- ---------------------------------------------------------------------------
+local DESC_BY_TRUST = {
+    -- Ark Angel (Vagary) trusts
+    ["AAEV"]              = "Tank:    Elvaan AA, holy DPS",
+    ["AAGK"]              = "Melee:   Galka AA, GA swings",
+    ["AAHM"]              = "Tank:    Hume male AA, SAM/PLD",
+    ["AAMR"]              = "Melee:   Mithra AA, dual blades",
+    ["AATT"]              = "Caster:  Tarutaru AA, -ga IVs",
+
+    ["Abenzio"]           = "Melee:   THF, evasion + DPS",
+    ["Abquhbah"]          = "Melee:   WAR, axe DPS",
+    ["Adelheid"]          = "Caster:  SMN, Garuda BPs + Refresh",
+    ["Ajido-Marujido"]    = "Caster:  BLM, AoE -ga nukes",
+    ["Aldo"]              = "Melee:   THF, evasion + acc",
+    ["Amchuchu"]          = "Tank:    RUN, best magic tank",
+    ["Areuhat"]           = "Melee:   DRK, scythe + drains",
+    ["Arciela"]           = "Support: RDM, debuffs + nukes",
+    ["Arciela II"]        = "Support: RDM, stronger debuffs",
+    ["August"]            = "Tank:    PLD, heavy enmity",
+    ["Ayame"]             = "Melee:   SAM, fast TP + WS",
+    ["Babban"]            = "Melee:   DNC, AoE drains",
+    ["Balamor"]           = "Melee:   DRK, magic sword",
+    ["Brygid"]            = "Special: auto Erase + stat removal",
+    ["Chacharoon"]        = "Melee:   THF, SA/hide",
+    ["Cherukiki"]         = "Healer:  WHM, regen + early cures",
+    ["Cid"]               = "Melee:   WAR, big GA hits",
+    ["Cornelia"]          = "Melee:   MNK, Boost stack",
+    ["Curilla"]           = "Tank:    PLD, classic Sentinel",
+    ["D. Shantotto"]      = "Caster:  BLM, dark -ga IVs",
+    ["Darrcuiln"]         = "Melee:   beastform, big spikes",
+    ["Elivira"]           = "Ranged:  RNG with bow",
+    ["Excenmille"]        = "Tank:    early PLD, basic",
+    ["Excenmille [S]"]    = "Tank:    WoTG PLD variant",
+    ["Fablinix"]          = "Melee:   THF, Adoulin tier",
+    ["Ferreous Coffin"]   = "Healer:  heavy-armor WHM, MP-efficient",
+    ["Gadalar"]           = "Caster:  BLM, fire/lightning",
+    ["Gessho"]            = "Tank:    NIN, shadows + low DT",
+    ["Gilgamesh"]         = "Melee:   SAM, multi-weapon WS",
+    ["Halver"]            = "Tank:    PLD, Adoulin tier",
+    ["Ingrid"]            = "Caster:  PLD/BLM hybrid nuker",
+    ["Ingrid II"]         = "Melee:   PLD, attacks + heals",
+    ["Iroha"]             = "Melee:   SAM, Tachi: Yukikaze",
+    ["Iroha II"]          = "Melee:   SAM, stronger WS",
+    ["Iron Eater"]        = "Melee:   galka WAR, huge axe",
+    ["Joachim"]           = "Support: BRD, Honor March +haste",
+    ["Karaha-Baruha"]     = "Healer:  bar spells on incoming dmg",
+    ["Kayeel-Payeel"]     = "Caster:  twin BLMs",
+    ["King of Hearts"]    = "Support: RDM, haste + nukes",
+    ["Klara"]             = "Melee:   WAR/COR, Bastok",
+    ["Koru-Moru"]         = "Support: RDM, Refresh II + Haste II",
+    ["Kukki-Chebukki"]    = "Caster:  goblin BLM-RNG twin",
+    ["Kupipi"]            = "Healer:  Tarutaru WHM",
+    ["Kupofried"]         = "Special: GEO, refresh aura buff",
+    ["Kuyin Hathdenna"]   = "Special: DRG with magic support",
+    ["Lehko Habhoka"]     = "Melee:   THF, SA/TA + TH4",
+    ["Leonoyne"]          = "Caster:  DRG with magic damage",
+    ["Lhe Lhangavo"]      = "Melee:   MNK, kicks",
+    ["Lhu Mhakaracca"]    = "Melee:   galka BST",
+    ["Lilisette"]         = "Melee:   DNC, AoE dances",
+    ["Lilisette II"]      = "Melee:   DNC, stronger AoE",
+    ["Lion"]              = "Melee:   Tenshodo THF, SA/TA",
+    ["Lion II"]           = "Melee:   THF, stronger DPS",
+    ["Luzaf"]             = "Melee:   COR rolls + DPS",
+    ["Maat"]              = "Melee:   MNK, hundred-fists boss",
+    ["Makki-Chebukki"]    = "Ranged:  goblin RNG twin",
+    ["Margret"]           = "Ranged:  Bastok RNG, bow",
+    ["Matsui-P"]          = "Support: GEO, designer's avatar",
+    ["Maximilian"]        = "Tank:    PLD",
+    ["Mayakov"]           = "Melee:   DNC mithra dancer",
+    ["Mihli Aliapoh"]     = "Healer:  galka WHM",
+    ["Mildaurion"]        = "Melee:   Atomos priestess",
+    ["Mnejing"]           = "Tank:    golem PLD, sturdy",
+    ["Monberaux"]         = "Healer:  WHM, researcher",
+    ["Moogle"]            = "Special: event trust, buffs",
+    ["Morimar"]           = "Melee:   BST with pet",
+    ["Mumor"]             = "Melee:   DNC star, AoE",
+    ["Mumor II"]          = "Caster:  BRD + magic blend",
+    ["Naja Salaheem"]     = "Melee:   Empress WAR, GAxe",
+    ["Najelith"]          = "Ranged:  Aht Urhgan RNG",
+    ["Naji"]              = "Melee:   Aht Urhgan THF",
+    ["Nanaa Mihgo"]       = "Melee:   Tenshodo THF, SA",
+    ["Nashmeira"]         = "Melee:   Empress fighter",
+    ["Nashmeira II"]      = "Melee:   PUP with automaton",
+    ["Noillurie"]         = "Melee:   MNK mithra",
+    ["Ovjang"]            = "Caster:  RDM, Slow II/Bio II",
+    ["Prishe"]            = "Melee:   MNK, Hundred Fists",
+    ["Prishe II"]         = "Melee:   MNK, stronger Prishe",
+    ["Qultada"]           = "Support: COR, Chaos/Hunter rolls",
+    ["Rahal"]             = "Tank:    PLD, Reraise hero",
+    ["Rainemard"]         = "Melee:   RDM offensive",
+    ["Robel-Akbel"]       = "Caster:  galka BLM",
+    ["Romaa Mihgo"]       = "Melee:   older THF mithra",
+    ["Rongelouts"]        = "Tank:    galka PLD",
+    ["Rosulatia"]         = "Caster:  SCH, dual arts",
+    ["Rughadjeen"]        = "Tank:    PLD, Aht Urhgan",
+    ["Sakura"]            = "Special: NIN female, debuffs",
+    ["Selh'teus"]         = "Melee:   SMN-style healer/DPS",
+    ["Semih Lafihna"]     = "Ranged:  mithra RNG",
+    ["Shantotto"]         = "Caster:  classic BLM",
+    ["Shantotto II"]      = "Caster:  BLM, stronger nukes",
+    ["Shikaree Z"]        = "Ranged:  Bastion RNG",
+    ["Star Sibyl"]        = "Special: Windurst priestess",
+    ["Tenzen"]            = "Melee:   SAM, swift attacks",
+    ["Tenzen II"]         = "Ranged:  SAM with bow",
+    ["Teodor"]            = "Caster:  Bastok BLM",
+    ["Trion"]             = "Tank:    Bastion PLD",
+    ["Uka Totlihn"]       = "Melee:   Adoulin DNC",
+    ["Ullegore"]          = "Caster:  DRK with magic",
+    ["Ulmia"]             = "Support: BRD songs",
+    ["Valaineral"]        = "Tank:    PLD, Cover + tank-shell",
+    ["Volker"]            = "Melee:   Bastok WAR",
+    ["Ygnas"]             = "Healer:  Adoulin medic",
+    ["Zazarg"]            = "Melee:   galka MNK",
+    ["Zeid"]              = "Melee:   DRK, Diabolos slayer",
+    ["Zeid II"]           = "Melee:   DRK, stronger Zeid",
+}
+
+local function trust_desc(name) return DESC_BY_TRUST[name] or "" end
+
+-- ---------------------------------------------------------------------------
 -- Visual constants — match GSUI's look
 -- ---------------------------------------------------------------------------
 local BORDER       = 3
@@ -186,7 +321,7 @@ local SUMMARY_H    = 26
 local ROW_H        = 18
 local SCROLL_BTN_H = 20
 local PAD          = 8
-local PANEL_W      = 380
+local PANEL_W      = 560
 local VISIBLE_ROWS = 22
 
 -- Colors (alpha, r, g, b)
@@ -324,7 +459,8 @@ local function cmd_list_chat()
     end
     chat(CHAT_HEADER, string.format('[MissingTrust] %d trusts still needed:', #missing))
     for _, t in ipairs(missing) do
-        chat(CHAT_MISSING, string.format('  - %-22s [%s]', t.name, trust_job(t.name)))
+        chat(CHAT_MISSING, string.format('  - %-22s [%s]  %s',
+            t.name, trust_job(t.name), trust_desc(t.name)))
     end
 end
 
@@ -336,7 +472,8 @@ local function cmd_have_chat()
     end
     chat(CHAT_HEADER, string.format('[MissingTrust] %d trusts learned:', #owned))
     for _, t in ipairs(owned) do
-        chat(CHAT_OWNED, string.format('  + %-22s [%s]', t.name, trust_job(t.name)))
+        chat(CHAT_OWNED, string.format('  + %-22s [%s]  %s',
+            t.name, trust_job(t.name), trust_desc(t.name)))
     end
 end
 
@@ -353,10 +490,11 @@ local function cmd_find_chat(query)
         if t.name:lower():find(query, 1, true) then
             hits = hits + 1
             local job = trust_job(t.name)
+            local desc = trust_desc(t.name)
             if known[t.id] then
-                chat(CHAT_OWNED,   string.format('  + %-22s [%s]   (learned)', t.name, job))
+                chat(CHAT_OWNED,   string.format('  + %-22s [%s]  %s   (learned)', t.name, job, desc))
             else
-                chat(CHAT_MISSING, string.format('  - %-22s [%s]   (missing)', t.name, job))
+                chat(CHAT_MISSING, string.format('  - %-22s [%s]  %s   (missing)', t.name, job, desc))
             end
         end
     end
@@ -390,7 +528,7 @@ end
 
 local function destroy_window()
     for _, e in pairs(ui.el)   do destroy(e) end
-    for _, r in ipairs(ui.rows) do destroy(r.bg); destroy(r.text); destroy(r.job) end
+    for _, r in ipairs(ui.rows) do destroy(r.bg); destroy(r.text); destroy(r.job); destroy(r.desc) end
     ui.el = {}
     ui.rows = {}
     ui.rect = {}
@@ -468,9 +606,13 @@ local function build_window()
         ui.el.empty = make_text(msg, row_x, list_y0 + 4, C_OWNED, 11)
     end
 
-    -- Job column lives at a fixed offset from the right edge of the body
-    local JOB_COL_OFFSET = 50    -- pixels from right edge of body for job tag
-    local job_col_x = tb_x + tb_w - PAD - JOB_COL_OFFSET
+    -- Column layout: name | job | role+style descriptor
+    --   name starts at row_x
+    --   job column at row_x + 170 (~22 chars of name fits)
+    --   desc column at row_x + 220 (5 chars for job)
+    local name_col_x = row_x
+    local job_col_x  = row_x + 170
+    local desc_col_x = row_x + 215
 
     for i = 1, visible do
         local data_idx = ui.scroll + i
@@ -492,9 +634,10 @@ local function build_window()
                 color = known[entry.id] and C_OWNED or C_MISSING
                 prefix = known[entry.id] and '+ ' or '- '
             end
-            local name_text = make_text(prefix .. entry.name, row_x, ry + 2, color, 10)
+            local name_text = make_text(prefix .. entry.name, name_col_x, ry + 2, color, 10)
             local job_text  = make_text(trust_job(entry.name), job_col_x, ry + 2, C_SUMMARY, 10, true)
-            table.insert(ui.rows, { bg = row_bg, text = name_text, job = job_text })
+            local desc_text = make_text(trust_desc(entry.name), desc_col_x, ry + 2, C_SUMMARY, 10, false)
+            table.insert(ui.rows, { bg = row_bg, text = name_text, job = job_text, desc = desc_text })
         end
     end
 
@@ -534,6 +677,7 @@ local function build_window()
         if r.bg then show(r.bg) end
         show(r.text)
         if r.job then show(r.job) end
+        if r.desc then show(r.desc) end
     end
 end
 
