@@ -363,6 +363,7 @@ local C_MISSING    = { 255, 255, 130, 130 }
 local C_OWNED      = { 255, 130, 230, 130 }
 local C_LEVEL      = { 255, 200, 200, 240 }      -- "[Lv 99]" prefix
 local C_SKILL      = { 255, 170, 200, 230 }      -- skill-name column on the right
+local C_UC_DIM     = { 180, 180, 180, 200 }      -- Unity Concord rows (informational)
 local C_SCROLL_BG  = { 200, 40,  50,  90  }
 local C_SCROLL_TXT = { 255, 255, 255, 255 }
 local C_SCROLL_OFF = { 80,  40,  50,  90  }
@@ -419,6 +420,10 @@ end
 -- Hand-to-Hand, etc.) and not every spell has a skill set. Fall back to
 -- spell.type (e.g. 'WhiteMagic', 'Ninjutsu', 'Geomancy') which is always
 -- populated and is the more useful classification anyway.
+--
+-- All labels are kept short (≤8 chars) so they don't run off the right
+-- edge of the body inside the skill column. Full res.skills names like
+-- "Enhancing Magic" are 15+ chars which overflows visibly.
 local SKILL_LABEL = {
     WhiteMagic   = 'White',
     BlackMagic   = 'Black',
@@ -428,36 +433,59 @@ local SKILL_LABEL = {
     BlueMagic    = 'Blue',
     Geomancy     = 'Geomancy',
     Trust        = 'Trust',
-    SummonerPact = 'Summoning',
+    SummonerPact = 'Summon',
     BardSong     = 'Song',
+}
+-- Compact aliases for the res.skills English names that come back from
+-- spell.skill — every "X Magic" gets shortened to its first word, plus a
+-- few one-offs for bard / blue / geo etc.
+local SKILL_ALIAS = {
+    ['Healing Magic']        = 'Heal',
+    ['Enhancing Magic']      = 'Enh',
+    ['Enfeebling Magic']     = 'Enf',
+    ['Elemental Magic']      = 'Ele',
+    ['Dark Magic']           = 'Dark',
+    ['Divine Magic']         = 'Divine',
+    ['Summoning Magic']      = 'Summon',
+    ['Blue Magic']           = 'Blue',
+    ['Geomancy']             = 'Geomancy',
+    ['Ninjutsu']             = 'Ninjutsu',
+    ['Singing']              = 'Song',
+    ['String Instrument']    = 'Strings',
+    ['Stringed Instrument']  = 'Strings',
+    ['Wind Instrument']      = 'Wind',
 }
 local function skill_label(spell)
     if not spell then return '' end
     -- Prefer the resource skill name if it's actually a magic skill
     if spell.skill and res.skills and res.skills[spell.skill] and res.skills[spell.skill].en then
         local en = res.skills[spell.skill].en
+        if SKILL_ALIAS[en] then return SKILL_ALIAS[en] end
         -- res.skills mixes combat + magic; only the magic ones are useful here
-        if SKILL_LABEL[en] or en:find('Magic') or en:find('Ninjutsu') or en:find('Song') or en:find('Summoning') or en:find('Geomancy') or en:find('Blue') then
-            return en
+        if en:find('Magic') or en:find('Ninjutsu') or en:find('Song')
+           or en:find('Summoning') or en:find('Geomancy') or en:find('Blue') then
+            -- Unknown magic skill — truncate so it never overflows
+            return en:sub(1, 8)
         end
     end
-    return SKILL_LABEL[spell.type] or spell.type or ''
+    return SKILL_LABEL[spell.type] or (spell.type or ''):sub(1, 8)
 end
 
--- Unity Concord trusts are awarded by Unity rank, not by ciphers / quests /
--- the regular acquisition path — so they don't belong in a "what do I need"
--- list. Match the same filter the original FFXIMissingTrust used.
+-- Unity Concord trusts are awarded via Unity accolades / rank — a separate
+-- progression from the regular cipher / quest / merit trusts. They're still
+-- shown in the list (alphabetically sorted alongside regular trusts) but
+-- the row carries an is_uc flag so the summary count can skip them.
 local function is_unity_concord(spell_name)
     return spell_name and spell_name:find('%(UC%)') ~= nil
 end
 
--- All trusts that can plausibly be earned the normal way. Returns rows
--- matching the spell row schema so the rest of the code can stay uniform
--- (level/skill fields stay empty; trust_job / trust_desc fields fill in).
+-- All trusts (UC included). Returns rows matching the spell row schema so
+-- the rest of the code can stay uniform (level/skill fields stay empty;
+-- trust_job / trust_desc fill in; is_uc marks Unity Concord variants).
 local function all_trusts()
     local out = {}
     for id, spell in pairs(res.spells) do
-        if spell and spell.type == 'Trust' and spell.en and not is_unity_concord(spell.en) then
+        if spell and spell.type == 'Trust' and spell.en then
             table.insert(out, {
                 id        = id,
                 name      = spell.en,
@@ -465,6 +493,7 @@ local function all_trusts()
                 skill     = '',                      -- unused
                 type      = 'Trust',
                 is_trust  = true,
+                is_uc     = is_unity_concord(spell.en),
                 trust_job = trust_job(spell.en),
                 trust_desc= trust_desc(spell.en),
             })
@@ -515,19 +544,62 @@ local function partition_for_job(ens)
     return owned, missing
 end
 
+-- Count helper: split a list of trust rows into regular + UC. Used only
+-- for the TRUST tab so UC trusts (Unity-rank-awarded; need accolades)
+-- don't inflate the "X / Y trusts learned" tally.
+local function split_uc(list)
+    local reg, uc = {}, {}
+    for _, s in ipairs(list) do
+        if s.is_uc then table.insert(uc, s) else table.insert(reg, s) end
+    end
+    return reg, uc
+end
+
 -- Returns ({rows}, summary_line, row_color) for the current mode + job.
 local function rows_for_view()
     local job = settings.job
     local unit = (job == 'TRUST') and 'trusts' or 'spells'
     local owned, missing = partition_for_job(job)
+
+    -- For the TRUST tab specifically, separate UC from regular for the
+    -- summary text. The list of rows still includes UC trusts so the user
+    -- can see what they could earn via accolades — they're just not in the
+    -- progress count.
+    if job == 'TRUST' then
+        local reg_owned, uc_owned   = split_uc(owned)
+        local reg_missing, uc_missing = split_uc(missing)
+        local reg_total = #reg_owned + #reg_missing
+        local uc_total  = #uc_owned  + #uc_missing
+        local uc_suffix = (uc_total > 0)
+            and string.format('   (+%d UC: %d owned, %d via accolades)', uc_total, #uc_owned, #uc_missing)
+            or ''
+        if settings.mode == 'owned' then
+            return owned,
+                   string.format('TRUST   Owned trusts: %d / %d%s',
+                       #reg_owned, reg_total, uc_suffix),
+                   C_OWNED
+        elseif settings.mode == 'all' then
+            local everything = all_spells_for_job(job)
+            return everything,
+                   string.format('TRUST   All trusts: %d  (owned %d, missing %d)%s',
+                       reg_total, #reg_owned, #reg_missing, uc_suffix),
+                   C_SUMMARY
+        else
+            return missing,
+                   string.format('TRUST   Missing trusts: %d / %d%s',
+                       #reg_missing, reg_total, uc_suffix),
+                   C_MISSING
+        end
+    end
+
+    -- Non-TRUST tabs: regular spell-school counting, no UC complications.
     local total = #owned + #missing
     if settings.mode == 'owned' then
         return owned,
                string.format('%s   Owned %s: %d / %d', job, unit, #owned, total),
                C_OWNED
     elseif settings.mode == 'all' then
-        local everything = {}
-        for _, s in ipairs(all_spells_for_job(job)) do table.insert(everything, s) end
+        local everything = all_spells_for_job(job)
         return everything,
                string.format('%s   All %s: %d  (owned %d, missing %d)', job, unit, total, #owned, #missing),
                C_SUMMARY
@@ -570,10 +642,26 @@ local function cmd_count(arg)
     if not job then chat(CHAT_MISSING, '[MissingSpells] unknown tab "'..tostring(arg)..'"'); return end
     local unit = (job == 'TRUST') and 'trusts' or 'spells'
     local owned, missing = partition_for_job(job)
-    local total = #owned + #missing
-    chat(CHAT_HEADER, string.format(
-        '[MissingSpells] %s: %d / %d %s learned  (%d still needed)',
-        job, #owned, total, unit, #missing))
+    if job == 'TRUST' then
+        -- Split UC from regular so the headline count matches what the
+        -- window summary shows. UC trusts are accolade-gated, separate path.
+        local reg_owned, uc_owned   = split_uc(owned)
+        local reg_missing, uc_missing = split_uc(missing)
+        local reg_total = #reg_owned + #reg_missing
+        chat(CHAT_HEADER, string.format(
+            '[MissingSpells] TRUST: %d / %d trusts learned  (%d still needed)',
+            #reg_owned, reg_total, #reg_missing))
+        if (#uc_owned + #uc_missing) > 0 then
+            chat(CHAT_ITEM, string.format(
+                '  + %d UC trusts: %d owned via accolades, %d still locked',
+                #uc_owned + #uc_missing, #uc_owned, #uc_missing))
+        end
+    else
+        local total = #owned + #missing
+        chat(CHAT_HEADER, string.format(
+            '[MissingSpells] %s: %d / %d %s learned  (%d still needed)',
+            job, #owned, total, unit, #missing))
+    end
 end
 
 local function cmd_list_chat(arg)
@@ -795,9 +883,12 @@ local function build_window()
     -- Two column layouts depending on tab:
     --   Trust:  "- name                  [JOB]   role"
     --   Spell:  "- [Lv NN]   spell name                 (Skill)"
+    -- Skill column gets ~140px so the longest abbreviation ("Geomancy",
+    -- "Ninjutsu") fits with the right-side panel border instead of running
+    -- past it. Names get the remaining ~370px which is plenty.
     local lv_col_x    = row_x                 -- spells: prefix + "[Lv NN]"
     local name_col_x  = row_x + 70            -- spells: spell name
-    local skill_col_x = tb_x + tb_w - PAD - 90 -- spells: skill name (right-ish)
+    local skill_col_x = tb_x + tb_w - PAD - 130 -- spells: skill name (right-ish)
     local t_name_col_x = row_x                 -- trusts: prefix + name
     local t_job_col_x  = row_x + 200           -- trusts: [JOB]
     local t_role_col_x = row_x + 250           -- trusts: role descriptor
@@ -825,7 +916,11 @@ local function build_window()
                 prefix = (settings.mode == 'missing') and '-' or '+'
             end
             if entry.is_trust then
-                local name_text = make_text(prefix..' '..entry.name, t_name_col_x, ry + 2, color, 10)
+                -- UC trusts are listed for reference but excluded from the
+                -- count (accolade-gated). Use a dimmer name color so the
+                -- regular trusts visually take precedence.
+                local name_color = entry.is_uc and C_UC_DIM or color
+                local name_text = make_text(prefix..' '..entry.name, t_name_col_x, ry + 2, name_color, 10)
                 local job_text  = make_text('['..(entry.trust_job or '?')..']',
                                             t_job_col_x, ry + 2, C_SUMMARY, 10, true)
                 local desc_text = make_text(entry.trust_desc or '', t_role_col_x, ry + 2, C_SKILL, 10, false)

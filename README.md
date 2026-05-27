@@ -103,6 +103,16 @@ expanded to handle every magic school so it could replace the
 type-it-out-in-chat workflow for spell scrolls too. If you remember the
 old `//mt` commands, they still work.
 
+## Credits
+
+- The data layer cribs from `resources/spells.xml` (Windower's bundled
+  spell table) and `windower.ffxi.get_spells()` (your live spell book),
+  same approach the **Spellbook** addon pioneered. Credit to the
+  Spellbook author for the original "list the player's known spells"
+  pattern that this addon extends with the missing-list flip side.
+  (Author name to be filled in — see the repo's contributors.)
+- Trust → job and trust → role tables curated from BG-Wiki.
+
 ## Author
 
 Jason (2026). Built for the FFXIWindower personal repo.
