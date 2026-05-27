@@ -1,10 +1,11 @@
 # FFXIMissingSpells
 
-Tells you which spells your character still needs to learn, broken out by
-magic-using job. Same idea as FFXIMissingTrust (now folded into this repo)
-but for the full spell book — twelve job tabs across the top, each
-listing every spell the job can learn at lv 1-99 with `-` red if missing
-or `+` green if already learned.
+Tells you which spells *and trusts* your character still needs to learn.
+Started life as FFXIMissingTrust (the trust-only addon) and got expanded
+to cover the full spell book — thirteen tabs across the top: a `TRUST`
+tab that does exactly what the old addon did, plus twelve job tabs
+listing every spell that job can learn at lv 1-99. Each row is `-` red
+if missing or `+` green if already learned.
 
 ## Install
 
@@ -31,12 +32,17 @@ chat is open so typing the letter 'u' still works normally.
 The window has two strips of tabs:
 
 - **Title bar (top right)** — `Missing` / `Owned` / `All` filter
-- **Beneath the title bar** — twelve job tabs:
-  `WHM | BLM | RDM | PLD | DRK | BRD | NIN | SMN | BLU | GEO | SCH | RUN`
+- **Beneath the title bar** — thirteen tabs:
+  `TRUST | WHM | BLM | RDM | PLD | DRK | BRD | NIN | SMN | BLU | GEO | SCH | RUN`
 
-Each row shows `[Lv NN]  Spell Name   (Skill)`. In the All tab spells are
-color-coded individually (red = missing, green = owned); in Missing /
-Owned the entire list is the matching color.
+The `TRUST` tab is the original FFXIMissingTrust functionality: every
+trust in the game (minus Unity Concord variants) with its combat job
+tag and role descriptor.
+
+The twelve job tabs show every spell that job can learn natively, sorted
+by level. Row format is `[Lv NN]  Spell Name   (Skill)`. In the All
+mode entries are color-coded individually (red = missing, green = owned);
+in Missing / Owned the entire list is the matching color.
 
 **Mouse:** drag the title bar to move. Mouse-wheel scrolls the list. Up/down
 arrow buttons appear on the right when there are more entries than fit on
@@ -47,11 +53,11 @@ screen. Window position, current job tab, and current mode all persist to
 
 | Command | What |
 |---|---|
-| `//ms count [JOB]` | One-line "owned / total (missing)" summary for the given job (defaults to current tab) |
-| `//ms list  [JOB]` | Print every missing spell for the job in chat |
-| `//ms have  [JOB]` | Print every owned spell for the job in chat |
-| `//ms find <name>` | Search every job — shows owned/missing status and which job(s) can learn it |
-| `//ms <JOB>` | Quick-switch the active tab (e.g. `//ms blm`) |
+| `//ms count [TAB]` | One-line "owned / total (missing)" summary for the given tab (defaults to current) |
+| `//ms list  [TAB]` | Print every missing entry for the tab in chat |
+| `//ms have  [TAB]` | Print every owned entry for the tab in chat |
+| `//ms find <name>` | Search every tab — shows owned/missing status and which job(s) or trust role |
+| `//ms <TAB>` | Quick-switch the active tab (e.g. `//ms trust`, `//ms blm`) |
 | `//ms mode <missing\|owned\|all>` | Change the filter mode |
 | `//ms refresh` | Re-read the spell book and redraw |
 | `//ms help` | Show the help blurb |

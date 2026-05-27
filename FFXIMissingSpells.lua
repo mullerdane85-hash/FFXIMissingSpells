@@ -40,17 +40,274 @@ local texts  = require('texts')
 local images = require('images')
 
 -- ---------------------------------------------------------------------------
--- Job list (tabs across the top of the window, in this exact order). Each
--- string MUST match res.jobs[id].ens for some id; the lookup below resolves
--- the numeric job id at load time so the rest of the code can stay textual.
+-- Tab list across the top of the window. 'TRUST' is special — it's not a
+-- res.jobs entry, it's the original FFXIMissingTrust functionality folded
+-- in as a tab. The other twelve are job ens codes that match res.jobs.
 -- ---------------------------------------------------------------------------
-local JOB_TABS = { 'WHM','BLM','RDM','PLD','DRK','BRD','NIN','SMN','BLU','GEO','SCH','RUN' }
+local JOB_TABS = { 'TRUST','WHM','BLM','RDM','PLD','DRK','BRD','NIN','SMN','BLU','GEO','SCH','RUN' }
 
 -- ens (e.g. 'WHM') → numeric job id. Populated from res.jobs at load.
 local job_id_by_ens = {}
 for jid, j in pairs(res.jobs) do
     if j and j.ens then job_id_by_ens[j.ens] = jid end
 end
+
+-- (is_trust_tab is defined further down, AFTER the settings local exists —
+-- otherwise it would capture `settings` as a global lookup and always
+-- return nil/false.)
+
+-- ---------------------------------------------------------------------------
+-- Trust → combat job (FFXI's spell data doesn't expose this — it's hand-
+-- curated from BG-Wiki). Editable; alphabetical for easy upkeep.
+-- ---------------------------------------------------------------------------
+local JOB_BY_TRUST = {
+    -- Ark Angel (Vagary) trusts — Five Race Avatars
+    ["AAEV"]             = "?",
+    ["AAGK"]             = "?",
+    ["AAHM"]             = "?",
+    ["AAMR"]             = "?",
+    ["AATT"]             = "?",
+
+    ["Abenzio"]          = "THF",
+    ["Abquhbah"]         = "WAR",
+    ["Adelheid"]         = "SCH",
+    ["Ajido-Marujido"]   = "BLM",
+    ["Aldo"]             = "THF",
+    ["Aldo (UC)"]        = "THF",
+    ["Amchuchu"]         = "RUN",
+    ["Apururu (UC)"]     = "WHM",
+    ["Arciela"]          = "RDM",
+    ["Arciela II"]       = "RDM",
+    ["Areuhat"]          = "DRK",
+    ["August"]           = "PLD",
+    ["Ayame"]            = "SAM",
+    ["Ayame (UC)"]       = "SAM",
+    ["Babban"]           = "DNC",
+    ["Balamor"]          = "DRK",
+    ["Brygid"]           = "WHM",
+    ["Chacharoon"]       = "THF",
+    ["Cherukiki"]        = "WHM",
+    ["Cid"]              = "WAR",
+    ["Cornelia"]         = "MNK",
+    ["Curilla"]          = "PLD",
+    ["D. Shantotto"]     = "BLM",
+    ["Darrcuiln"]        = "WAR",
+    ["Elivira"]          = "RDM",
+    ["Excenmille"]       = "PLD",
+    ["Excenmille [S]"]   = "PLD",
+    ["Fablinix"]         = "THF",
+    ["Ferreous Coffin"]  = "WHM",
+    ["Flaviria (UC)"]    = "DRG",
+    ["Gadalar"]          = "BLM",
+    ["Gessho"]           = "NIN",
+    ["Gilgamesh"]        = "SAM",
+    ["Halver"]           = "PLD",
+    ["I. Shield (UC)"]   = "PLD",
+    ["Ingrid"]           = "PLD",
+    ["Ingrid II"]        = "PLD",
+    ["Iroha"]            = "SAM",
+    ["Iroha II"]         = "SAM",
+    ["Iron Eater"]       = "WAR",
+    ["Jakoh (UC)"]       = "WAR",
+    ["Joachim"]          = "BRD",
+    ["Karaha-Baruha"]    = "WHM",
+    ["Kayeel-Payeel"]    = "BLM",
+    ["King of Hearts"]   = "PLD",
+    ["Klara"]            = "WAR",
+    ["Koru-Moru"]        = "RDM",
+    ["Kukki-Chebukki"]   = "THF",
+    ["Kupipi"]           = "WHM",
+    ["Kupofried"]        = "GEO",
+    ["Kuyin Hathdenna"]  = "DRG",
+    ["Lehko Habhoka"]    = "THF",
+    ["Leonoyne"]         = "DRG",
+    ["Lhe Lhangavo"]     = "MNK",
+    ["Lhu Mhakaracca"]   = "BST",
+    ["Lilisette"]        = "DNC",
+    ["Lilisette II"]     = "DNC",
+    ["Lion"]             = "THF",
+    ["Lion II"]          = "THF",
+    ["Luzaf"]            = "COR",
+    ["Maat"]             = "MNK",
+    ["Maat (UC)"]        = "MNK",
+    ["Makki-Chebukki"]   = "THF",
+    ["Margret"]          = "RNG",
+    ["Matsui-P"]         = "GEO",
+    ["Maximilian"]       = "PLD",
+    ["Mayakov"]          = "DNC",
+    ["Mihli Aliapoh"]    = "WHM",
+    ["Mildaurion"]       = "WHM",
+    ["Mnejing"]          = "WAR",
+    ["Monberaux"]        = "WHM",
+    ["Moogle"]           = "RDM",
+    ["Morimar"]          = "BST",
+    ["Mumor"]            = "DNC",
+    ["Mumor II"]         = "BRD",
+    ["Naja (UC)"]        = "WAR",
+    ["Naja Salaheem"]    = "WAR",
+    ["Najelith"]         = "RNG",
+    ["Naji"]             = "THF",
+    ["Nanaa Mihgo"]      = "THF",
+    ["Nashmeira"]        = "WHM",
+    ["Nashmeira II"]     = "PUP",
+    ["Noillurie"]        = "WHM",
+    ["Ovjang"]           = "RDM",
+    ["Pieuje (UC)"]      = "WHM",
+    ["Prishe"]           = "MNK",
+    ["Prishe II"]        = "MNK",
+    ["Qultada"]          = "COR",
+    ["Rahal"]            = "PLD",
+    ["Rainemard"]        = "RDM",
+    ["Robel-Akbel"]      = "BLM",
+    ["Romaa Mihgo"]      = "THF",
+    ["Rongelouts"]       = "PLD",
+    ["Rosulatia"]        = "SCH",
+    ["Rughadjeen"]       = "PLD",
+    ["Sakura"]           = "NIN",
+    ["Selh'teus"]        = "DRG",
+    ["Semih Lafihna"]    = "RNG",
+    ["Shantotto"]        = "BLM",
+    ["Shantotto II"]     = "BLM",
+    ["Shikaree Z"]       = "RNG",
+    ["Star Sibyl"]       = "WHM",
+    ["Sylvie (UC)"]      = "GEO",
+    ["Tenzen"]           = "SAM",
+    ["Tenzen II"]        = "SAM",
+    ["Teodor"]           = "BLM",
+    ["Trion"]            = "PLD",
+    ["Uka Totlihn"]      = "DNC",
+    ["Ullegore"]         = "DRK",
+    ["Ulmia"]            = "BRD",
+    ["Valaineral"]       = "PLD",
+    ["Volker"]           = "WAR",
+    ["Ygnas"]            = "WAR",
+    ["Yoran-Oran (UC)"]  = "WHM",
+    ["Zazarg"]           = "MNK",
+    ["Zeid"]             = "DRK",
+    ["Zeid II"]          = "DRK",
+}
+local function trust_job(name) return JOB_BY_TRUST[name] or "?" end
+
+-- ---------------------------------------------------------------------------
+-- Trust → role descriptor (curated from BG-Wiki). Format:
+--   "Tank" | "Healer" | "DPS Melee <weapon>" | "DPS Ranged <weapon>" |
+--   "DPS Magic" | "Support" | "Support <aura>"
+-- ---------------------------------------------------------------------------
+local DESC_BY_TRUST = {
+    ["AAEV"]              = "Tank",
+    ["AAGK"]              = "DPS Melee GA",
+    ["AAHM"]              = "Tank",
+    ["AAMR"]              = "DPS Melee Dagger",
+    ["AATT"]              = "DPS Magic",
+
+    ["Abenzio"]           = "DPS Melee Dagger",
+    ["Abquhbah"]          = "DPS Melee Axe",
+    ["Adelheid"]          = "DPS Magic",
+    ["Ajido-Marujido"]    = "DPS Magic",
+    ["Aldo"]              = "DPS Melee Dagger",
+    ["Amchuchu"]          = "Tank",
+    ["Areuhat"]           = "DPS Melee Scythe",
+    ["Arciela"]           = "Support Debuffs",
+    ["Arciela II"]        = "Support Debuffs",
+    ["August"]            = "Tank",
+    ["Ayame"]             = "DPS Melee GK",
+    ["Babban"]            = "DPS Melee Dagger",
+    ["Balamor"]           = "DPS Melee Sword",
+    ["Brygid"]            = "Support Erase",
+    ["Chacharoon"]        = "DPS Melee Dagger",
+    ["Cherukiki"]         = "Healer",
+    ["Cid"]               = "DPS Melee GA",
+    ["Cornelia"]          = "DPS Melee H2H",
+    ["Curilla"]           = "Tank",
+    ["D. Shantotto"]      = "DPS Magic",
+    ["Darrcuiln"]         = "DPS Melee H2H",
+    ["Elivira"]           = "DPS Ranged Bow",
+    ["Excenmille"]        = "Tank",
+    ["Excenmille [S]"]    = "Tank",
+    ["Fablinix"]          = "DPS Melee Dagger",
+    ["Ferreous Coffin"]   = "Healer",
+    ["Gadalar"]           = "DPS Magic",
+    ["Gessho"]            = "Tank",
+    ["Gilgamesh"]         = "DPS Melee GK",
+    ["Halver"]            = "Tank",
+    ["Ingrid"]            = "DPS Magic",
+    ["Ingrid II"]         = "DPS Melee Sword",
+    ["Iroha"]             = "DPS Melee GK",
+    ["Iroha II"]          = "DPS Melee GK",
+    ["Iron Eater"]        = "DPS Melee GA",
+    ["Joachim"]           = "Support Honor March",
+    ["Karaha-Baruha"]     = "Healer",
+    ["Kayeel-Payeel"]     = "DPS Magic",
+    ["King of Hearts"]    = "Support Haste",
+    ["Klara"]             = "DPS Ranged Gun",
+    ["Koru-Moru"]         = "Support Haste II/Refresh II",
+    ["Kukki-Chebukki"]    = "DPS Magic",
+    ["Kupipi"]            = "Healer",
+    ["Kupofried"]         = "Support Refresh",
+    ["Kuyin Hathdenna"]   = "Support",
+    ["Lehko Habhoka"]     = "DPS Melee Dagger",
+    ["Leonoyne"]          = "DPS Magic",
+    ["Lhe Lhangavo"]      = "DPS Melee H2H",
+    ["Lhu Mhakaracca"]    = "DPS Melee + Pet",
+    ["Lilisette"]         = "DPS Melee Dagger",
+    ["Lilisette II"]      = "DPS Melee Dagger",
+    ["Lion"]              = "DPS Melee Dagger",
+    ["Lion II"]           = "DPS Melee Dagger",
+    ["Luzaf"]             = "DPS Ranged Gun",
+    ["Maat"]              = "DPS Melee H2H",
+    ["Makki-Chebukki"]    = "DPS Ranged Bow",
+    ["Margret"]           = "DPS Ranged Bow",
+    ["Matsui-P"]          = "Support GEO",
+    ["Maximilian"]        = "Tank",
+    ["Mayakov"]           = "DPS Melee Dagger",
+    ["Mihli Aliapoh"]     = "Healer",
+    ["Mildaurion"]        = "DPS Melee Sword",
+    ["Mnejing"]           = "Tank",
+    ["Monberaux"]         = "Healer",
+    ["Moogle"]            = "Support",
+    ["Morimar"]           = "DPS Melee + Pet",
+    ["Mumor"]             = "DPS Melee Dagger",
+    ["Mumor II"]          = "Support Songs",
+    ["Naja Salaheem"]     = "DPS Melee GA",
+    ["Najelith"]          = "DPS Ranged Bow",
+    ["Naji"]              = "DPS Melee Dagger",
+    ["Nanaa Mihgo"]       = "DPS Melee Dagger",
+    ["Nashmeira"]         = "DPS Melee Sword",
+    ["Nashmeira II"]      = "DPS Melee + Auto",
+    ["Noillurie"]         = "DPS Melee H2H",
+    ["Ovjang"]            = "Support Debuffs",
+    ["Prishe"]            = "DPS Melee H2H",
+    ["Prishe II"]         = "DPS Melee H2H",
+    ["Qultada"]           = "Support COR Rolls",
+    ["Rahal"]             = "Tank",
+    ["Rainemard"]         = "DPS Melee Sword",
+    ["Robel-Akbel"]       = "DPS Magic",
+    ["Romaa Mihgo"]       = "DPS Melee Dagger",
+    ["Rongelouts"]        = "Tank",
+    ["Rosulatia"]         = "DPS Magic",
+    ["Rughadjeen"]        = "Tank",
+    ["Sakura"]            = "DPS Melee Katana",
+    ["Selh'teus"]         = "DPS Melee Polearm",
+    ["Semih Lafihna"]     = "DPS Ranged Bow",
+    ["Shantotto"]         = "DPS Magic",
+    ["Shantotto II"]      = "DPS Magic",
+    ["Shikaree Z"]        = "DPS Ranged Bow",
+    ["Star Sibyl"]        = "Support",
+    ["Tenzen"]            = "DPS Melee GK",
+    ["Tenzen II"]         = "DPS Ranged Bow",
+    ["Teodor"]            = "DPS Magic",
+    ["Trion"]             = "Tank",
+    ["Uka Totlihn"]       = "DPS Melee Dagger",
+    ["Ullegore"]          = "DPS Magic",
+    ["Ulmia"]             = "Support Songs",
+    ["Valaineral"]        = "Tank",
+    ["Volker"]            = "DPS Melee GA",
+    ["Ygnas"]             = "Healer",
+    ["Zazarg"]            = "DPS Melee H2H",
+    ["Zeid"]              = "DPS Melee GS",
+    ["Zeid II"]           = "DPS Melee GS",
+}
+local function trust_desc(name) return DESC_BY_TRUST[name] or "" end
 
 -- ---------------------------------------------------------------------------
 -- Settings (persistent — saved to data/settings.xml)
@@ -59,7 +316,7 @@ local defaults = {
     pos      = { x = 220, y = 220 },
     visible  = false,
     mode     = 'missing',    -- missing | owned | all
-    job      = 'WHM',        -- one of JOB_TABS
+    job      = 'TRUST',      -- one of JOB_TABS (TRUST is the original use case)
 }
 local settings = config.load(defaults)
 
@@ -68,8 +325,12 @@ local function is_valid_job(j)
     for _, v in ipairs(JOB_TABS) do if v == j then return true end end
     return false
 end
-if not is_valid_job(settings.job) then settings.job = 'WHM' end
+if not is_valid_job(settings.job) then settings.job = 'TRUST' end
 config.save(settings)
+
+-- Now that `settings` exists as a local in this chunk, define the helper
+-- (Lua captures `settings` lexically at definition time).
+local function is_trust_tab() return settings.job == 'TRUST' end
 
 -- ---------------------------------------------------------------------------
 -- Visual constants — same family as FFXIMissingTrust (red/pink palette) so
@@ -84,7 +345,7 @@ local SUMMARY_H    = 26
 local ROW_H        = 18
 local SCROLL_BTN_H = 20
 local PAD          = 8
-local PANEL_W      = 640      -- wider than the Trust window to fit 12 job tabs
+local PANEL_W      = 700      -- wider than the Trust window to fit 13 tabs (TRUST + 12 jobs)
 local VISIBLE_ROWS = 22
 
 -- Colors (alpha, r, g, b)
@@ -183,10 +444,42 @@ local function skill_label(spell)
     return SKILL_LABEL[spell.type] or spell.type or ''
 end
 
+-- Unity Concord trusts are awarded by Unity rank, not by ciphers / quests /
+-- the regular acquisition path — so they don't belong in a "what do I need"
+-- list. Match the same filter the original FFXIMissingTrust used.
+local function is_unity_concord(spell_name)
+    return spell_name and spell_name:find('%(UC%)') ~= nil
+end
+
+-- All trusts that can plausibly be earned the normal way. Returns rows
+-- matching the spell row schema so the rest of the code can stay uniform
+-- (level/skill fields stay empty; trust_job / trust_desc fields fill in).
+local function all_trusts()
+    local out = {}
+    for id, spell in pairs(res.spells) do
+        if spell and spell.type == 'Trust' and spell.en and not is_unity_concord(spell.en) then
+            table.insert(out, {
+                id        = id,
+                name      = spell.en,
+                level     = 0,                       -- unused for trusts
+                skill     = '',                      -- unused
+                type      = 'Trust',
+                is_trust  = true,
+                trust_job = trust_job(spell.en),
+                trust_desc= trust_desc(spell.en),
+            })
+        end
+    end
+    table.sort(out, function(a, b) return a.name < b.name end)
+    return out
+end
+
 -- Every spell the given job (ens like 'WHM') can natively learn at lv 1-cap.
--- Returns a list of { id, name, level, skill, type } sorted by level then
--- name. Trust spells are excluded (they have their own addon).
+-- For the special 'TRUST' tab, defers to all_trusts() above. Returns a
+-- list of { id, name, level, skill, type, is_trust?, trust_job?, trust_desc? }
+-- sorted by level then name (trusts: alphabetical).
 local function all_spells_for_job(ens, lv_cap)
+    if ens == 'TRUST' then return all_trusts() end
     lv_cap = lv_cap or 99
     local jid = job_id_by_ens[ens]
     if not jid then return {} end
@@ -225,21 +518,22 @@ end
 -- Returns ({rows}, summary_line, row_color) for the current mode + job.
 local function rows_for_view()
     local job = settings.job
+    local unit = (job == 'TRUST') and 'trusts' or 'spells'
     local owned, missing = partition_for_job(job)
     local total = #owned + #missing
     if settings.mode == 'owned' then
         return owned,
-               string.format('%s   Owned: %d / %d', job, #owned, total),
+               string.format('%s   Owned %s: %d / %d', job, unit, #owned, total),
                C_OWNED
     elseif settings.mode == 'all' then
         local everything = {}
         for _, s in ipairs(all_spells_for_job(job)) do table.insert(everything, s) end
         return everything,
-               string.format('%s   All: %d  (owned %d, missing %d)', job, total, #owned, #missing),
+               string.format('%s   All %s: %d  (owned %d, missing %d)', job, unit, total, #owned, #missing),
                C_SUMMARY
     else
         return missing,
-               string.format('%s   Missing: %d / %d', job, #missing, total),
+               string.format('%s   Missing %s: %d / %d', job, unit, #missing, total),
                C_MISSING
     end
 end
@@ -259,46 +553,62 @@ local function resolve_job_arg(arg)
     return nil
 end
 
+-- Format one row for chat output. Trust rows use the old name [JOB] role
+-- layout; spell rows use the new [Lv NN] name (Skill) layout.
+local function row_chat_line(s, prefix)
+    if s.is_trust then
+        return string.format('  %s %-22s [%s]  %s',
+            prefix, s.name, s.trust_job or '?', s.trust_desc or '')
+    else
+        return string.format('  %s [Lv %2d]  %-22s  (%s)',
+            prefix, s.level, s.name, s.skill)
+    end
+end
+
 local function cmd_count(arg)
     local job = resolve_job_arg(arg)
-    if not job then chat(CHAT_MISSING, '[MissingSpells] unknown job "'..tostring(arg)..'"'); return end
+    if not job then chat(CHAT_MISSING, '[MissingSpells] unknown tab "'..tostring(arg)..'"'); return end
+    local unit = (job == 'TRUST') and 'trusts' or 'spells'
     local owned, missing = partition_for_job(job)
     local total = #owned + #missing
     chat(CHAT_HEADER, string.format(
-        '[MissingSpells] %s: %d / %d spells learned  (%d still needed)',
-        job, #owned, total, #missing))
+        '[MissingSpells] %s: %d / %d %s learned  (%d still needed)',
+        job, #owned, total, unit, #missing))
 end
 
 local function cmd_list_chat(arg)
     local job = resolve_job_arg(arg)
-    if not job then chat(CHAT_MISSING, '[MissingSpells] unknown job "'..tostring(arg)..'"'); return end
+    if not job then chat(CHAT_MISSING, '[MissingSpells] unknown tab "'..tostring(arg)..'"'); return end
+    local unit = (job == 'TRUST') and 'trusts' or 'spells'
     local _, missing = partition_for_job(job)
     if #missing == 0 then
-        chat(CHAT_OWNED, '[MissingSpells] '..job..': every spell learned. Nice.')
+        chat(CHAT_OWNED, '[MissingSpells] '..job..': every '..unit:sub(1, -2)..' learned. Nice.')
         return
     end
-    chat(CHAT_HEADER, string.format('[MissingSpells] %s: %d spells still needed:', job, #missing))
+    chat(CHAT_HEADER, string.format('[MissingSpells] %s: %d %s still needed:', job, #missing, unit))
     for _, s in ipairs(missing) do
-        chat(CHAT_MISSING, string.format('  - [Lv %2d]  %-22s  (%s)', s.level, s.name, s.skill))
+        chat(CHAT_MISSING, row_chat_line(s, '-'))
     end
 end
 
 local function cmd_have_chat(arg)
     local job = resolve_job_arg(arg)
-    if not job then chat(CHAT_MISSING, '[MissingSpells] unknown job "'..tostring(arg)..'"'); return end
+    if not job then chat(CHAT_MISSING, '[MissingSpells] unknown tab "'..tostring(arg)..'"'); return end
+    local unit = (job == 'TRUST') and 'trusts' or 'spells'
     local owned = partition_for_job(job)
     if #owned == 0 then
-        chat(CHAT_MISSING, '[MissingSpells] '..job..': no spells learned yet.')
+        chat(CHAT_MISSING, '[MissingSpells] '..job..': no '..unit..' learned yet.')
         return
     end
-    chat(CHAT_HEADER, string.format('[MissingSpells] %s: %d spells learned:', job, #owned))
+    chat(CHAT_HEADER, string.format('[MissingSpells] %s: %d %s learned:', job, #owned, unit))
     for _, s in ipairs(owned) do
-        chat(CHAT_OWNED, string.format('  + [Lv %2d]  %-22s  (%s)', s.level, s.name, s.skill))
+        chat(CHAT_OWNED, row_chat_line(s, '+'))
     end
 end
 
--- Search across every job, since the user might not know which job a given
--- spell name belongs to. Marks each hit with [LEARNED] or [MISSING].
+-- Search across every job AND every trust, since the user might not know
+-- which tab a given name belongs to. Marks each hit with [LEARNED] or
+-- [MISSING] and includes trust matches with their [JOB] role tag.
 local function cmd_find_chat(query)
     if not query or query == '' then
         chat(CHAT_MISSING, '[MissingSpells] usage: //ms find <name fragment>')
@@ -307,33 +617,46 @@ local function cmd_find_chat(query)
     query = query:lower()
     local known = windower.ffxi.get_spells() or {}
     local hits = 0
-    chat(CHAT_HEADER, string.format('[MissingSpells] Spells matching "%s":', query))
-    -- Iterate res.spells directly so we get matches across every job, not
-    -- only the magic-using ones tabbed in the window.
+    chat(CHAT_HEADER, string.format('[MissingSpells] Matches for "%s":', query))
     local seen = {}
     for id, spell in pairs(res.spells) do
-        if spell and spell.en and spell.type ~= 'Trust' and spell.en:lower():find(query, 1, true) and not seen[id] then
+        if spell and spell.en and spell.en:lower():find(query, 1, true) and not seen[id] then
             seen[id] = true
             hits = hits + 1
-            -- Find which of our tabbed jobs can learn it
-            local jobs = {}
-            if spell.levels then
-                for _, ens in ipairs(JOB_TABS) do
-                    local jid = job_id_by_ens[ens]
-                    if jid and spell.levels[jid] then
-                        table.insert(jobs, string.format('%s@%d', ens, spell.levels[jid]))
+            if spell.type == 'Trust' then
+                -- Trust match — use the trust's job + role columns instead
+                if not is_unity_concord(spell.en) then
+                    local tjob  = trust_job(spell.en)
+                    local tdesc = trust_desc(spell.en)
+                    if known[id] then
+                        chat(CHAT_OWNED, string.format('  + %-22s [%s]  %s   [LEARNED Trust]', spell.en, tjob, tdesc))
+                    else
+                        chat(CHAT_MISSING, string.format('  - %-22s [%s]  %s   [MISSING Trust]', spell.en, tjob, tdesc))
                     end
                 end
-            end
-            local job_str = (#jobs > 0) and table.concat(jobs, ' ') or '(no tabbed job)'
-            if known[id] then
-                chat(CHAT_OWNED,   string.format('  + %-22s  %s   [LEARNED]', spell.en, job_str))
             else
-                chat(CHAT_MISSING, string.format('  - %-22s  %s   [MISSING]', spell.en, job_str))
+                -- Spell match — show which of our 12 job tabs can learn it
+                local jobs = {}
+                if spell.levels then
+                    for _, ens in ipairs(JOB_TABS) do
+                        if ens ~= 'TRUST' then
+                            local jid = job_id_by_ens[ens]
+                            if jid and spell.levels[jid] then
+                                table.insert(jobs, string.format('%s@%d', ens, spell.levels[jid]))
+                            end
+                        end
+                    end
+                end
+                local job_str = (#jobs > 0) and table.concat(jobs, ' ') or '(no tabbed job)'
+                if known[id] then
+                    chat(CHAT_OWNED,   string.format('  + %-22s  %s   [LEARNED]', spell.en, job_str))
+                else
+                    chat(CHAT_MISSING, string.format('  - %-22s  %s   [MISSING]', spell.en, job_str))
+                end
             end
         end
     end
-    if hits == 0 then chat(CHAT_ITEM, '  (no spells match)') end
+    if hits == 0 then chat(CHAT_ITEM, '  (no matches)') end
 end
 
 -- ---------------------------------------------------------------------------
@@ -462,19 +785,22 @@ local function build_window()
     ui.scroll = math.min(ui.scroll, math.max(0, #rows - VISIBLE_ROWS))
 
     if #rows == 0 then
-        local msg = (settings.mode == 'missing') and ('No missing spells for ' .. settings.job .. '. Done!')
-                 or (settings.mode == 'owned')   and (settings.job .. ': no spells learned yet.')
-                 or (settings.job .. ': no spells in resources.')
+        local unit = is_trust_tab() and 'trusts' or 'spells'
+        local msg = (settings.mode == 'missing') and ('No missing '..unit..' for ' .. settings.job .. '. Done!')
+                 or (settings.mode == 'owned')   and (settings.job .. ': no '..unit..' learned yet.')
+                 or (settings.job .. ': no '..unit..' in resources.')
         ui.el.empty = make_text(msg, row_x, list_y0 + 4, C_OWNED, 11)
     end
 
-    -- Column layout: [Lv NN]   spell name                 (skill)
-    --   lv      at row_x
-    --   name    at row_x + 70
-    --   skill   right-aligned ~ row_x + tb_w - 110
-    local lv_col_x    = row_x
-    local name_col_x  = row_x + 70
-    local skill_col_x = tb_x + tb_w - PAD - 90
+    -- Two column layouts depending on tab:
+    --   Trust:  "- name                  [JOB]   role"
+    --   Spell:  "- [Lv NN]   spell name                 (Skill)"
+    local lv_col_x    = row_x                 -- spells: prefix + "[Lv NN]"
+    local name_col_x  = row_x + 70            -- spells: spell name
+    local skill_col_x = tb_x + tb_w - PAD - 90 -- spells: skill name (right-ish)
+    local t_name_col_x = row_x                 -- trusts: prefix + name
+    local t_job_col_x  = row_x + 200           -- trusts: [JOB]
+    local t_role_col_x = row_x + 250           -- trusts: role descriptor
 
     local known = windower.ffxi.get_spells() or {}
     for i = 1, visible do
@@ -498,11 +824,22 @@ local function build_window()
             else
                 prefix = (settings.mode == 'missing') and '-' or '+'
             end
-            local lv_str    = string.format('%s [Lv %2d]', prefix, entry.level)
-            local lv_text   = make_text(lv_str, lv_col_x, ry + 2, C_LEVEL, 10)
-            local name_text = make_text(entry.name, name_col_x, ry + 2, color, 10)
-            local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
-            table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text, skill = skill_text })
+            if entry.is_trust then
+                local name_text = make_text(prefix..' '..entry.name, t_name_col_x, ry + 2, color, 10)
+                local job_text  = make_text('['..(entry.trust_job or '?')..']',
+                                            t_job_col_x, ry + 2, C_SUMMARY, 10, true)
+                local desc_text = make_text(entry.trust_desc or '', t_role_col_x, ry + 2, C_SKILL, 10, false)
+                -- Reuse the same field names so destroy_window() handles cleanup
+                -- with no special-case code (lv/skill fields just stand in for
+                -- the trust columns).
+                table.insert(ui.rows, { bg = row_bg, lv = job_text, name = name_text, skill = desc_text })
+            else
+                local lv_str    = string.format('%s [Lv %2d]', prefix, entry.level)
+                local lv_text   = make_text(lv_str, lv_col_x, ry + 2, C_LEVEL, 10)
+                local name_text = make_text(entry.name, name_col_x, ry + 2, color, 10)
+                local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
+                table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text, skill = skill_text })
+            end
         end
     end
 
@@ -716,11 +1053,12 @@ windower.register_event('addon command', function(cmd, ...)
         chat(CHAT_HEADER, '[MissingSpells] Commands:')
         chat(CHAT_ITEM, '  //ms              — toggle the window')
         chat(CHAT_ITEM, '  //ms show / hide  — show/hide the window')
-        chat(CHAT_ITEM, '  //ms <JOB>        — switch tabs ( //ms blm )')
-        chat(CHAT_ITEM, '  //ms count [JOB]  — one-line summary')
-        chat(CHAT_ITEM, '  //ms list  [JOB]  — list missing spells in chat')
-        chat(CHAT_ITEM, '  //ms have  [JOB]  — list owned spells in chat')
-        chat(CHAT_ITEM, '  //ms find <name>  — search across every job')
+        chat(CHAT_ITEM, '  //ms <TAB>        — switch tabs: TRUST | WHM | BLM | RDM | PLD |')
+        chat(CHAT_ITEM, '                       DRK | BRD | NIN | SMN | BLU | GEO | SCH | RUN')
+        chat(CHAT_ITEM, '  //ms count [TAB]  — one-line summary')
+        chat(CHAT_ITEM, '  //ms list  [TAB]  — list missing in chat')
+        chat(CHAT_ITEM, '  //ms have  [TAB]  — list owned in chat')
+        chat(CHAT_ITEM, '  //ms find <name>  — search across every spell + trust')
         chat(CHAT_ITEM, '  //ms mode <missing|owned|all>')
         chat(CHAT_ITEM, '  //ms refresh      — re-read spell book + redraw')
     else
