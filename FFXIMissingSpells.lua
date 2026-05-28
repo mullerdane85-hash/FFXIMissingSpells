@@ -1193,7 +1193,14 @@ local function build_window()
             local ry = list_y0 + (i - 1) * ROW_H
             -- Subtle alternating row tint
             local row_bg
-            if i % 2 == 0 then
+            -- Selected (click-locked) spell gets a brighter highlight
+            -- bg so the user can see which row their click + arrow-keys
+            -- last landed on. This always paints regardless of the
+            -- normal alternating-tint logic.
+            if entry.name == settings.selected_spell then
+                row_bg = make_bg(row_x - 2, ry - 1, list_w - PAD * 2 + 4, ROW_H,
+                                  { 200, 50, 120, 200 })
+            elseif i % 2 == 0 then
                 -- Row bg only spans the LEFT (list) section, not the
                 -- detail pane on the right.
                 row_bg = make_bg(row_x - 2, ry - 1, list_w - PAD * 2 + 4, ROW_H,
@@ -1591,20 +1598,74 @@ windower.register_event('addon command', function(cmd, ...)
 end)
 
 -- ---------------------------------------------------------------------------
--- Keyboard toggle (U key) — same scancode FFXIMissingTrust used.
--- Skip while chat is open so we don't intercept typing.
+-- Keyboard handler
+--   U                 — toggle window (chat-suppressed)
+--   Up / Down arrows  — move selection in the current spell list, and
+--                       autoscroll if it moves off the visible window.
+--                       Only fires while the window is visible AND
+--                       there's no chat input open.
 -- ---------------------------------------------------------------------------
-local DIK_U = 22
+local DIK_U     = 22
+local DIK_UP    = 200   -- 0xC8
+local DIK_DOWN  = 208   -- 0xD0
+local DIK_PGUP  = 201   -- 0xC9
+local DIK_PGDN  = 209   -- 0xD1
+
+-- Move the selection by `delta` rows in the current filtered list, then
+-- adjust ui.scroll so the selected row stays in the visible window.
+local function move_selection(delta)
+    local rows = rows_for_view()
+    if not rows or #rows == 0 then return end
+    -- Find current selection's index; if not in list (e.g. just changed
+    -- tabs), start at the top or bottom depending on direction.
+    local cur_idx = nil
+    if settings.selected_spell and settings.selected_spell ~= '' then
+        for i, e in ipairs(rows) do
+            if e.name == settings.selected_spell then cur_idx = i; break end
+        end
+    end
+    local new_idx
+    if cur_idx then
+        new_idx = math.max(1, math.min(#rows, cur_idx + delta))
+    else
+        new_idx = (delta > 0) and 1 or #rows
+    end
+    local new_entry = rows[new_idx]
+    if not new_entry then return end
+    if new_entry.name ~= settings.selected_spell then
+        settings.selected_spell = new_entry.name
+        ui.detail_scroll = 0
+        config.save(settings)
+    end
+    -- Autoscroll: keep the selected row in the visible window
+    if new_idx - 1 < ui.scroll then
+        ui.scroll = new_idx - 1
+    elseif new_idx > ui.scroll + VISIBLE_ROWS then
+        ui.scroll = new_idx - VISIBLE_ROWS
+    end
+    ui.scroll = math.max(0, math.min(ui.scroll, math.max(0, #rows - VISIBLE_ROWS)))
+    build_window()
+end
 
 windower.register_event('keyboard', function(dik, pressed, flags, blocked)
     if blocked then return end
     if not pressed then return end
-    if dik ~= DIK_U then return end
 
     local info = windower.ffxi.get_info()
-    if info and info.chat_open then return end
+    local chat_open = info and info.chat_open
+    if chat_open then return end
 
-    toggle_window()
+    if dik == DIK_U then
+        toggle_window()
+        return
+    end
+
+    -- Arrow nav only when the window is visible
+    if not settings.visible then return end
+    if dik == DIK_UP   then move_selection(-1)  end
+    if dik == DIK_DOWN then move_selection(1)   end
+    if dik == DIK_PGUP then move_selection(-VISIBLE_ROWS) end
+    if dik == DIK_PGDN then move_selection( VISIBLE_ROWS) end
 end)
 
 -- ---------------------------------------------------------------------------
