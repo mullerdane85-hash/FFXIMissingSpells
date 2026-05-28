@@ -797,10 +797,12 @@ end
 -- ---------------------------------------------------------------------------
 -- Tooltip helpers
 -- ---------------------------------------------------------------------------
--- Long acquisition details are word-wrapped to ~60-char lines so the
--- tooltip stays at a readable width and doesn't run off screen.
-local TOOLTIP_WIDTH_CHARS = 60
-local TOOLTIP_MAX_LINES   = 24
+-- Long acquisition details are word-wrapped to ~48-char lines so the
+-- tooltip stays at a readable width and reliably fits beside the
+-- panel without running off screen. (Was 60; reduced because some
+-- screen / FFXI window combos didn't have room for the wider popup.)
+local TOOLTIP_WIDTH_CHARS = 48
+local TOOLTIP_MAX_LINES   = 22
 
 local function word_wrap(text, width)
     local out_lines = {}
@@ -972,15 +974,14 @@ local function build_window()
 
     -- Column layouts:
     --   Trust:  "- name                  [JOB]   role"
-    --   Spell:  "- [Lv NN]   spell name      where-to-get      (Skill)"
-    -- Spell-row columns:
+    --   Spell:  "- [Lv NN]   spell name                              (Skill)"
+    -- Spell-row columns (acquisition info moved to the hover tooltip
+    -- only — the in-row "where to get" column was unhelpful):
     --   lv:    prefix + "[Lv NN]"     at row_x          (~70px wide)
-    --   name:  spell.en               at row_x + 70     (~140px wide)
-    --   acq:   where-to-get tag       at row_x + 220    (~190px wide)
+    --   name:  spell.en               at row_x + 70
     --   skill: short skill label      right-aligned ~ tb_x + tb_w - PAD - 130
     local lv_col_x    = row_x
     local name_col_x  = row_x + 70
-    local acq_col_x   = row_x + 220             -- new middle "where to get" column
     local skill_col_x = tb_x + tb_w - PAD - 130
     local t_name_col_x = row_x
     local t_job_col_x  = row_x + 200
@@ -1025,16 +1026,16 @@ local function build_window()
                 local lv_str    = string.format('%s [Lv %2d]', prefix, entry.level)
                 local lv_text   = make_text(lv_str, lv_col_x, ry + 2, C_LEVEL, 10)
                 local name_text = make_text(entry.name, name_col_x, ry + 2, color, 10)
-                local acq_tag   = acquisition_tag_for(entry.name)
-                local acq_text  = make_text(acq_tag, acq_col_x, ry + 2, C_ACQUIRE, 10, false)
                 local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
-                -- Hit-rect so the mouse handler can show the tooltip when
-                -- the cursor is over this row.
+                -- Hit-rect for the hover tooltip. (No in-row "where to
+                -- get" column anymore — that info moved entirely to the
+                -- hover popup since the short tags weren't useful enough
+                -- to justify the column width.)
                 local hit_rect = {x = row_x - 2, y = ry - 1,
                                   w = tb_w - PAD * 2 + 4, h = ROW_H,
                                   spell_name = entry.name}
                 table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text,
-                                        acq = acq_text, skill = skill_text,
+                                        skill = skill_text,
                                         rect = hit_rect })
             end
         end
@@ -1140,12 +1141,12 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
         return
     end
 
-    -- Lazy-create
+    -- Lazy-create. Fully-opaque bg (alpha 255) so the tooltip reads as
+    -- a solid panel — earlier alpha=240 was washing into the rows under
+    -- it. The text color is also pushed brighter for contrast.
     if not ui.tooltip_bg then
-        ui.tooltip_bg = make_bg(0, 0, 10, 10, { 240, 18, 28, 60 })
-        ui.tooltip_text = make_text('', 0, 0, { 255, 235, 235, 245 }, 10, false)
-        -- Start hidden — the show() further below toggles them visible
-        -- when there's actually content to show.
+        ui.tooltip_bg = make_bg(0, 0, 10, 10, { 255, 8, 16, 40 })
+        ui.tooltip_text = make_text('', 0, 0, { 255, 245, 245, 250 }, 10, false)
         ui.tooltip_bg:hide()
         ui.tooltip_text:hide()
     end
@@ -1166,17 +1167,41 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
         ui._tooltip_h  = h
     end
 
-    -- Position: offset right + down from the cursor so the tooltip doesn't
-    -- sit under it. If it would run off the right or bottom of the screen,
-    -- flip to the other side of the cursor.
-    local res_w, res_h = windower.get_windower_settings().ui_x_res or 1920,
-                         windower.get_windower_settings().ui_y_res or 1080
-    local tx = mouse_x + 16
-    local ty = mouse_y + 16
-    if tx + (ui._tooltip_w or 0) > res_w then tx = mouse_x - (ui._tooltip_w or 0) - 8 end
-    if ty + (ui._tooltip_h or 0) > res_h then ty = mouse_y - (ui._tooltip_h or 0) - 8 end
-    if tx < 0 then tx = 0 end
+    -- Position: anchor the tooltip to the addon's own panel rather than
+    -- the cursor — that way it can never escape onto the desktop, and
+    -- moves with the window when the user drags it.
+    --
+    -- Default: attach to the RIGHT edge of the panel, vertically aligned
+    -- with the cursor's Y so it tracks which row is being hovered.
+    -- If the right edge would push past the screen width, flip to the
+    -- LEFT edge of the panel instead.
+    local windower_settings = windower.get_windower_settings()
+    local res_w = (windower_settings and windower_settings.ui_x_res) or 1920
+    local res_h = (windower_settings and windower_settings.ui_y_res) or 1080
+    local tw    = ui._tooltip_w or 0
+    local th    = ui._tooltip_h or 0
+    local px    = settings.pos.x
+    local py    = settings.pos.y
+    local pw    = ui.total_w or PANEL_W
+    local ph    = ui.total_h or 0
+    local gap   = 8
+
+    -- Horizontal: right of panel preferred; flip left if it would overflow
+    local tx = px + pw + gap
+    if tx + tw > res_w then
+        tx = px - tw - gap        -- flip to the left of the panel
+        if tx < 0 then
+            tx = math.max(0, res_w - tw)  -- last resort: pin to right edge of screen
+        end
+    end
+    -- Vertical: align tooltip top with cursor Y, but clamp to screen
+    local ty = mouse_y - 10
+    if ty + th > res_h then ty = math.max(0, res_h - th) end
     if ty < 0 then ty = 0 end
+    -- Also clamp to within the addon panel's vertical span so the tooltip
+    -- isn't floating way above or below the spells it describes.
+    if ty + th > py + ph + 50 then ty = math.max(py, py + ph + 50 - th) end
+    if ty < py - 10 then ty = py - 10 end
 
     ui.tooltip_bg:pos(tx, ty)
     ui.tooltip_text:pos(tx + 8, ty + 6)
