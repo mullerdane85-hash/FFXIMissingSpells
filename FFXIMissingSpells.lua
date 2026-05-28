@@ -1607,16 +1607,22 @@ end)
 -- ---------------------------------------------------------------------------
 -- Keyboard handler
 --   U                 — toggle window (chat-suppressed)
---   Up / Down arrows  — move selection in the current spell list, and
---                       autoscroll if it moves off the visible window.
---                       Only fires while the window is visible AND
---                       there's no chat input open.
+--   ; / '             — move selection up / down in the spell list.
+--                       (Arrow keys aren't used because FFXI reads them
+--                       at the DirectInput device level, below Windower's
+--                       keyboard hook — Windower can't suppress the
+--                       camera-rotate even with return true. The
+--                       semicolon and apostrophe keys aren't polled by
+--                       FFXI for anything other than chat input, so
+--                       they're safe to repurpose when chat is closed.)
+--   PgUp / PgDn       — page-jump in the list (also safe — unbound)
+--   All gated on: window visible + chat closed.
 -- ---------------------------------------------------------------------------
-local DIK_U     = 22
-local DIK_UP    = 200   -- 0xC8
-local DIK_DOWN  = 208   -- 0xD0
-local DIK_PGUP  = 201   -- 0xC9
-local DIK_PGDN  = 209   -- 0xD1
+local DIK_U          = 22
+local DIK_SEMICOLON  = 39    -- 0x27 — ";" key, used as Up
+local DIK_APOSTROPHE = 40    -- 0x28 — "'" key, used as Down
+local DIK_PGUP       = 201   -- 0xC9
+local DIK_PGDN       = 209   -- 0xD1
 
 -- Move the selection by `delta` rows in the current filtered list, then
 -- adjust ui.scroll so the selected row stays in the visible window.
@@ -1667,21 +1673,20 @@ windower.register_event('keyboard', function(dik, pressed, flags, blocked)
         return true
     end
 
-    -- Arrow / page nav: only when the window is visible. We return TRUE
-    -- (consumed) for BOTH the press and the release so FFXI doesn't
-    -- still see the keyup and rotate the camera. Without this, the
-    -- arrow keys fell through to the game's camera-control binding.
+    -- Selection nav: only when the window is visible. Semicolon / apostrophe
+    -- aren't polled by FFXI for any in-game action, so consuming them here
+    -- (return true) reliably blocks them from chat-input fallthrough too.
     if not settings.visible then return false end
-    if dik == DIK_UP   or dik == DIK_DOWN
-       or dik == DIK_PGUP or dik == DIK_PGDN then
+    if dik == DIK_SEMICOLON or dik == DIK_APOSTROPHE
+       or dik == DIK_PGUP    or dik == DIK_PGDN then
         if pressed then
-            if     dik == DIK_UP   then move_selection(-1)
-            elseif dik == DIK_DOWN then move_selection(1)
-            elseif dik == DIK_PGUP then move_selection(-VISIBLE_ROWS)
-            elseif dik == DIK_PGDN then move_selection( VISIBLE_ROWS)
+            if     dik == DIK_SEMICOLON  then move_selection(-1)
+            elseif dik == DIK_APOSTROPHE then move_selection(1)
+            elseif dik == DIK_PGUP       then move_selection(-VISIBLE_ROWS)
+            elseif dik == DIK_PGDN       then move_selection( VISIBLE_ROWS)
             end
         end
-        return true   -- consume so the game doesn't process the same key
+        return true
     end
 
     return false
