@@ -363,6 +363,9 @@ local defaults = {
     visible  = false,
     mode     = 'missing',    -- missing | owned | all
     job      = 'TRUST',      -- one of JOB_TABS (TRUST is the original use case)
+    -- Click-locked spell whose acquisition detail shows in the right-side
+    -- detail pane. '' means nothing selected -> pane shows a hint.
+    selected_spell = '',
 }
 local settings = config.load(defaults)
 
@@ -391,7 +394,8 @@ local SUMMARY_H    = 26
 local ROW_H        = 18
 local SCROLL_BTN_H = 20
 local PAD          = 8
-local PANEL_W      = 700      -- wider than the Trust window to fit 13 tabs (TRUST + 12 jobs)
+local PANEL_W      = 1040     -- wider to fit a right-side detail pane (~340px)
+local DETAIL_W     = 340      -- width of the right-side detail pane (info column)
 local VISIBLE_ROWS = 22
 
 -- Colors (alpha, r, g, b)
@@ -834,11 +838,12 @@ end
 -- ---------------------------------------------------------------------------
 -- Tooltip helpers
 -- ---------------------------------------------------------------------------
--- Tooltip width target. Each labelled line (e.g. "Vendor:" + a vendor row)
--- gets word-wrapped to this many characters max; the popup auto-sizes its
--- height to whatever the wrapped content needs.
-local TOOLTIP_WIDTH_CHARS = 48
-local TOOLTIP_MAX_LINES   = 28
+-- Wrap width for the right-side detail pane. DETAIL_W is ~340 px; at
+-- Arial 10pt with ~9 px per character that gives ~36 visible chars per
+-- line. Lower bound on lines so very long acquisition strings (e.g.
+-- Absorb-Attri's huge monster list) don't blow out the panel height.
+local TOOLTIP_WIDTH_CHARS = 36
+local TOOLTIP_MAX_LINES   = 32
 
 -- Split a string on top-level commas (commas that are NOT inside brackets
 -- or parens). The CSV format puts method names separated by commas at
@@ -1018,10 +1023,11 @@ local ui = {
     total_h   = 0,
     -- Tooltip elements (lazy-created the first time it's shown so the
     -- normal render path doesn't pay the cost when nothing's hovered).
-    tooltip_bg     = nil,
-    tooltip_text   = nil,
-    tooltip_for    = nil,    -- spell.en the tooltip currently shows for
-    tooltip_visible = false,
+    -- Right-side detail pane: a single text element that shows the
+    -- click-locked spell's full acquisition info. Replaces the old
+    -- hover tooltip. Lives inside the main panel so it always stays on
+    -- screen and never gets clipped.
+    detail_text    = nil,
 }
 
 local function calc_dims(row_count)
@@ -1040,13 +1046,10 @@ local function destroy_window()
     for _, r in ipairs(ui.rows) do
         destroy(r.bg); destroy(r.lv); destroy(r.name); destroy(r.acq); destroy(r.skill)
     end
-    -- Tooltip pieces (don't destroy, just hide — keep them around for
-    -- the next hover). Rebuilding the window invalidates the rows so
-    -- any visible tooltip would refer to a deleted row anyway.
-    if ui.tooltip_bg   then ui.tooltip_bg:hide()   end
-    if ui.tooltip_text then ui.tooltip_text:hide() end
-    ui.tooltip_visible = false
-    ui.tooltip_for     = nil
+    -- Detail pane text is recreated each build_window pass since the
+    -- panel size + position can change; destroy it here so it's
+    -- regenerated cleanly with the new geometry.
+    if ui.detail_text then destroy(ui.detail_text); ui.detail_text = nil end
     ui.el = {}
     ui.rows = {}
     ui.rect = {}
@@ -1133,7 +1136,16 @@ local function build_window()
     ui.el.body_bg = make_bg(tb_x, body_y, tb_w, body_h, C_BODY_BG)
     ui.rect.body = { x = tb_x, y = body_y, w = tb_w, h = body_h }
 
-    -- Summary line at top of body
+    -- Body is split into:
+    --   left:  spell list (lv / name / skill)
+    --   right: detail pane showing click-locked spell's acquisition info
+    -- list_w is the width of the LEFT half; rows + skill column live inside it.
+    local list_w = tb_w - DETAIL_W - 4        -- leave 4px for the divider
+    -- Vertical divider between list and detail pane
+    ui.el.detail_divider = make_bg(tb_x + list_w, body_y + PAD,
+                                   1, body_h - PAD * 2, { 200, 60, 100, 160 })
+
+    -- Summary line at top of body (above the list)
     ui.el.summary = make_text(summary, tb_x + PAD, body_y + PAD, C_SUMMARY, 11, true)
 
     -- Visible rows
@@ -1160,7 +1172,9 @@ local function build_window()
     --   skill: short skill label      right-aligned ~ tb_x + tb_w - PAD - 130
     local lv_col_x    = row_x
     local name_col_x  = row_x + 70
-    local skill_col_x = tb_x + tb_w - PAD - 130
+    -- skill column is anchored to the right side of the LIST (not the
+    -- whole body), so the detail pane on the right gets clean space.
+    local skill_col_x = tb_x + list_w - PAD - 130
     local t_name_col_x = row_x
     local t_job_col_x  = row_x + 200
     local t_role_col_x = row_x + 250
@@ -1174,7 +1188,9 @@ local function build_window()
             -- Subtle alternating row tint
             local row_bg
             if i % 2 == 0 then
-                row_bg = make_bg(row_x - 2, ry - 1, tb_w - PAD * 2 + 4, ROW_H,
+                -- Row bg only spans the LEFT (list) section, not the
+                -- detail pane on the right.
+                row_bg = make_bg(row_x - 2, ry - 1, list_w - PAD * 2 + 4, ROW_H,
                                   { 90, 30, 40, 75 })
             end
             -- In ALL mode, color each row by ownership instead of using the
@@ -1205,12 +1221,11 @@ local function build_window()
                 local lv_text   = make_text(lv_str, lv_col_x, ry + 2, C_LEVEL, 10)
                 local name_text = make_text(entry.name, name_col_x, ry + 2, color, 10)
                 local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
-                -- Hit-rect for the hover tooltip. (No in-row "where to
-                -- get" column anymore — that info moved entirely to the
-                -- hover popup since the short tags weren't useful enough
-                -- to justify the column width.)
+                -- Hit-rect for click selection — only spans the list
+                -- section so a click on the detail pane doesn't pick
+                -- a spell.
                 local hit_rect = {x = row_x - 2, y = ry - 1,
-                                  w = tb_w - PAD * 2 + 4, h = ROW_H,
+                                  w = list_w - PAD * 2 + 4, h = ROW_H,
                                   spell_name = entry.name}
                 table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text,
                                         skill = skill_text,
@@ -1219,10 +1234,11 @@ local function build_window()
         end
     end
 
-    -- Scroll buttons (only when needed)
+    -- Scroll buttons (only when needed) — anchored to the list section
+    -- so they stay inside the list column, not over the detail pane.
     if #rows > VISIBLE_ROWS then
         local btn_w = 40
-        local btn_x = tb_x + tb_w - PAD - btn_w
+        local btn_x = tb_x + list_w - PAD - btn_w
         local up_y  = list_y0 + visible * ROW_H + PAD
         local dn_y  = up_y + SCROLL_BTN_H + 2
 
@@ -1247,15 +1263,35 @@ local function build_window()
             tb_x + PAD, up_y + 4, C_SUMMARY, 10, false)
     end
 
+    -- =========================================================================
+    -- Right-side detail pane (click-locked acquisition info)
+    -- =========================================================================
+    local detail_x = tb_x + list_w + PAD
+    local detail_y = body_y + PAD
+    local sel = settings.selected_spell or ''
+    local detail_content
+    if sel == '' then
+        detail_content = '\\cs(150,180,220)Click a spell to lock its acquisition info here.\\cr'
+    else
+        local raw = acquisition_full_for(sel)
+        if raw == '' then
+            detail_content = '\\cs(255,220,140)'..sel..'\\cr\n\\cs(180,180,180)(no acquisition info available)\\cr'
+        else
+            local body  = format_acquisition(raw)
+            detail_content = '\\cs(255,220,140)'..sel..'\\cr\n'..body
+        end
+    end
+    ui.detail_text = make_text(detail_content, detail_x, detail_y, { 255, 245, 245, 250 }, 10, false)
+
     -- Show everything
     for _, e in pairs(ui.el) do show(e) end
     for _, r in ipairs(ui.rows) do
         if r.bg then show(r.bg) end
         show(r.lv)
         show(r.name)
-        if r.acq then show(r.acq) end   -- new "where to get" column (spell rows only)
         show(r.skill)
     end
+    if ui.detail_text then show(ui.detail_text) end
 end
 
 local function show_window()
@@ -1300,129 +1336,15 @@ local function scroll_by(delta)
     refresh_window()
 end
 
--- ---------------------------------------------------------------------------
--- Hover tooltip: show the FULL acquisition detail next to the cursor.
--- Lazy-creates the bg + text objects on first show so the cost only lands
--- once. Hides when no spell name is supplied. update_tooltip is called
--- from the mouse-move handler.
--- ---------------------------------------------------------------------------
-function update_tooltip(spell_name, mouse_x, mouse_y)
-    local detail = spell_name and acquisition_full_for(spell_name) or nil
-    if not detail or detail == '' then
-        -- Hide if previously visible
-        if ui.tooltip_visible then
-            if ui.tooltip_bg then ui.tooltip_bg:hide() end
-            if ui.tooltip_text then ui.tooltip_text:hide() end
-            ui.tooltip_visible = false
-            ui.tooltip_for = nil
-        end
-        return
-    end
-
-    -- Lazy-create. Fully-opaque bg (alpha 255) so the tooltip reads as
-    -- a solid panel — earlier alpha=240 was washing into the rows under
-    -- it. The text color is also pushed brighter for contrast.
-    if not ui.tooltip_bg then
-        ui.tooltip_bg = make_bg(0, 0, 10, 10, { 255, 8, 16, 40 })
-        ui.tooltip_text = make_text('', 0, 0, { 255, 245, 245, 250 }, 10, false)
-        ui.tooltip_bg:hide()
-        ui.tooltip_text:hide()
-    end
-
-    -- Only rebuild text when the hovered spell changes (mouse move while
-    -- still on the same row doesn't re-format every frame).
-    if ui.tooltip_for ~= spell_name then
-        local header = '\\cs(255,220,140)' .. spell_name .. '\\cr'
-        local body   = format_acquisition(detail)
-        local full   = header .. '\n' .. body
-        ui.tooltip_text:text(full)
-
-        -- Size the bg to the actual rendered text. texts.new objects
-        -- expose :extents() which returns the rendered pixel size
-        -- (accounting for the user's actual font/UI scale) — much more
-        -- accurate than my per-char estimate. Fall back to a generous
-        -- estimate if extents returns nothing (e.g. text hasn't been
-        -- laid out yet on first call).
-        local text_w, text_h
-        if ui.tooltip_text.extents then
-            text_w, text_h = ui.tooltip_text:extents()
-        end
-        local line_count = 1
-        for _ in full:gmatch('\n') do line_count = line_count + 1 end
-        if not text_w or text_w < 50 then
-            -- Fallback estimate. 12 px/char is generous for Arial 10pt;
-            -- wider than needed for most lines but never too narrow.
-            text_w = TOOLTIP_WIDTH_CHARS * 12
-        end
-        if not text_h or text_h < 10 then
-            text_h = line_count * 14
-        end
-        local w = text_w + 24   -- horizontal padding inside the bg
-        local h = text_h + 14   -- vertical padding
-        ui.tooltip_bg:size(w, h)
-        ui.tooltip_for = spell_name
-        ui._tooltip_w  = w
-        ui._tooltip_h  = h
-    end
-
-    -- Position the tooltip beside the panel. Strategy:
-    --   1. Detect the in-game UI resolution (FFXI window) — try several
-    --      Windower setting fields because the exact name differs across
-    --      versions / configs.
-    --   2. Pick the side (right or left of panel) with more space.
-    --   3. After placing, FINAL clamp so the tooltip is fully within the
-    --      UI rectangle — this is the belt-and-suspenders that catches
-    --      any case where our resolution detection is off.
-    local ws = windower.get_windower_settings() or {}
-    local res_w = ws.ui_x_res or ws.x_res or 1920
-    local res_h = ws.ui_y_res or ws.y_res or 1080
-    local tw    = ui._tooltip_w or 0
-    local th    = ui._tooltip_h or 0
-    local px    = settings.pos.x
-    local py    = settings.pos.y
-    local pw    = ui.total_w or PANEL_W
-    local ph    = ui.total_h or 0
-    local gap   = 8
-
-    -- Choose side with more available space
-    local space_right = res_w - (px + pw + gap)
-    local space_left  = px - gap
-    local tx
-    if space_right >= tw or space_right >= space_left then
-        tx = px + pw + gap                 -- prefer right side
-    else
-        tx = px - tw - gap                 -- left side has more room
-    end
-
-    -- Vertical: align tooltip near the hovered row
-    local ty = mouse_y - 10
-
-    -- FINAL clamp — ensure the entire bg fits inside the UI rect even if
-    -- the side-choice math was wrong (e.g. resolution underestimated,
-    -- both sides too narrow, etc.).
-    if tx + tw > res_w then tx = res_w - tw end
-    if tx < 0           then tx = 0          end
-    if ty + th > res_h then ty = res_h - th end
-    if ty < 0           then ty = 0          end
-
-    ui.tooltip_bg:pos(tx, ty)
-    ui.tooltip_text:pos(tx + 8, ty + 6)
-    if not ui.tooltip_visible then
-        ui.tooltip_bg:show()
-        ui.tooltip_text:show()
-        ui.tooltip_visible = true
-    end
-end
-
 -- Windower mouse event types: 0=move, 1=LMB down, 2=LMB up, 10=wheel.
 -- See SESSION-NOTES gotcha F (FFXIMissingTrust) for full mapping.
 windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     if not settings.visible then return false end
     if blocked then return false end
 
-    -- Mouse MOVE — follow the drag even if the cursor leaves the window.
-    -- Also drive the hover tooltip: detect which row the cursor is over
-    -- and show/hide / update the tooltip's text + position accordingly.
+    -- Mouse MOVE — only used to follow the drag when the title bar is
+    -- being dragged. (Hover-tooltip detection is gone; the right-side
+    -- detail pane is click-locked instead.)
     if mtype == 0 then
         if ui.drag then
             settings.pos.x = x - ui.drag.dx
@@ -1430,18 +1352,6 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
             build_window()
             return true
         end
-        -- Hover detection
-        local hovered_spell = nil
-        if is_over_window(x, y) then
-            for _, row in ipairs(ui.rows) do
-                local r = row.rect
-                if r and in_rect(x, y, r) then
-                    hovered_spell = r.spell_name
-                    break
-                end
-            end
-        end
-        update_tooltip(hovered_spell, x, y)
         return is_over_window(x, y)
     end
 
@@ -1496,6 +1406,19 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
         if ui.rect.scroll_dn and in_rect(x, y, ui.rect.scroll_dn) and ui.rect.scroll_dn.enabled then
             scroll_by(math.floor(VISIBLE_ROWS / 2))
             return true
+        end
+        -- Row click: lock the clicked spell as the detail pane's subject.
+        -- The clicked spell's acquisition info will persist in the right
+        -- pane until the user picks another (GSUI-style click-locked
+        -- info column, replaces the old hover tooltip).
+        for _, row in ipairs(ui.rows) do
+            local r = row.rect
+            if r and r.spell_name and in_rect(x, y, r) then
+                settings.selected_spell = r.spell_name
+                config.save(settings)
+                build_window()
+                return true
+            end
         end
         return true
     end
