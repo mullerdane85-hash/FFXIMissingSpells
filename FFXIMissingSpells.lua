@@ -840,13 +840,14 @@ end
 -- ---------------------------------------------------------------------------
 -- Wrap width for the right-side detail pane. DETAIL_W is ~340 px; at
 -- Arial 10pt with ~9 px per character that gives ~36 visible chars per
--- line. TOOLTIP_MAX_LINES is now an upper bound on the FULL formatted
--- text — content longer than that is appended with " ..." but the
--- panel paginates anything beyond the visible window so the scrollbar
--- still works.
+-- line. TOOLTIP_MAX_LINES is the cap on the FULL formatted text.
+-- DETAIL_VISIBLE_LINES is computed at frame time from the actual body
+-- height (see build_window) rather than being a fixed constant — that
+-- way the detail pane never overflows the panel bottom no matter how
+-- many spells / job tabs are visible.
 local TOOLTIP_WIDTH_CHARS = 36
 local TOOLTIP_MAX_LINES   = 200
-local DETAIL_VISIBLE_LINES = 26
+local DETAIL_LINE_H       = 16    -- approximate rendered height of one Arial 10pt line
 
 -- Split a string on top-level commas (commas that are NOT inside brackets
 -- or parens). The CSV format puts method names separated by commas at
@@ -1273,6 +1274,19 @@ local function build_window()
     -- =========================================================================
     local detail_x = tb_x + list_w + PAD
     local detail_y = body_y + PAD
+
+    -- Anchor the ▲/▼ scroll buttons to the BOTTOM of the body. That way
+    -- they're guaranteed to be inside the panel no matter what body_h
+    -- works out to this frame. Then derive how many text lines we can
+    -- fit between detail_y and the buttons.
+    local d_btn_w = 26
+    local d_btn_x = tb_x + tb_w - PAD - d_btn_w - 2
+    local d_dn_y  = body_y + body_h - SCROLL_BTN_H - PAD
+    local d_up_y  = d_dn_y - SCROLL_BTN_H - 2
+
+    local visible_h = (d_up_y - 4) - detail_y
+    local detail_visible_lines = math.max(4, math.floor(visible_h / DETAIL_LINE_H))
+
     local sel = settings.selected_spell or ''
     -- Build the full content as a list of lines so we can paginate it.
     local full_lines
@@ -1296,13 +1310,13 @@ local function build_window()
 
     -- Clamp scroll to valid range so re-rendering doesn't leave an
     -- off-end window when the selection changes to a shorter detail.
-    local max_dscroll = math.max(0, ui.detail_total - DETAIL_VISIBLE_LINES)
+    local max_dscroll = math.max(0, ui.detail_total - detail_visible_lines)
     if ui.detail_scroll < 0 then ui.detail_scroll = 0 end
     if ui.detail_scroll > max_dscroll then ui.detail_scroll = max_dscroll end
 
     -- Slice the lines to the visible window
     local sliced = {}
-    for i = 1, DETAIL_VISIBLE_LINES do
+    for i = 1, detail_visible_lines do
         local idx = ui.detail_scroll + i
         if not full_lines[idx] then break end
         table.insert(sliced, full_lines[idx])
@@ -1310,15 +1324,11 @@ local function build_window()
     ui.detail_text = make_text(table.concat(sliced, '\n'),
                                detail_x, detail_y, { 255, 245, 245, 250 }, 10, false)
 
-    -- Scroll buttons for the detail pane (only when content overflows).
-    -- Mirror the list-side scroll buttons' style + position so the
-    -- interaction feels consistent.
-    if ui.detail_total > DETAIL_VISIBLE_LINES then
-        local d_btn_w = 26
-        local d_btn_x = tb_x + tb_w - PAD - d_btn_w - 2
-        local d_up_y  = detail_y + DETAIL_VISIBLE_LINES * 14 + 4
-        local d_dn_y  = d_up_y + SCROLL_BTN_H + 2
+    -- Remember for the wheel handler
+    ui.detail_visible_lines = detail_visible_lines
 
+    -- Scroll buttons render only when content overflows the visible window
+    if ui.detail_total > detail_visible_lines then
         local can_du = ui.detail_scroll > 0
         local can_dd = ui.detail_scroll < max_dscroll
 
@@ -1470,15 +1480,16 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
         -- Detail-pane scroll buttons (separate up/down for the right
         -- column; tested BEFORE the list scroll so a click in the
         -- detail-pane buttons doesn't fall through).
+        local dvis = ui.detail_visible_lines or 20
         if ui.rect.detail_scroll_up and in_rect(x, y, ui.rect.detail_scroll_up)
            and ui.rect.detail_scroll_up.enabled then
-            ui.detail_scroll = math.max(0, ui.detail_scroll - math.floor(DETAIL_VISIBLE_LINES / 2))
+            ui.detail_scroll = math.max(0, ui.detail_scroll - math.floor(dvis / 2))
             build_window()
             return true
         end
         if ui.rect.detail_scroll_dn and in_rect(x, y, ui.rect.detail_scroll_dn)
            and ui.rect.detail_scroll_dn.enabled then
-            ui.detail_scroll = ui.detail_scroll + math.floor(DETAIL_VISIBLE_LINES / 2)
+            ui.detail_scroll = ui.detail_scroll + math.floor(dvis / 2)
             build_window()
             return true
         end
@@ -1502,10 +1513,11 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     -- Scroll wheel: route to whichever column the cursor is over.
     -- detail pane > list (default).
     if mtype == 10 then
+        local dvis = ui.detail_visible_lines or 20
         if ui.rect.detail_pane and in_rect(x, y, ui.rect.detail_pane)
-           and ui.detail_total > DETAIL_VISIBLE_LINES then
+           and ui.detail_total > dvis then
             local step = (delta > 0) and -3 or 3
-            local max_dscroll = math.max(0, ui.detail_total - DETAIL_VISIBLE_LINES)
+            local max_dscroll = math.max(0, ui.detail_total - dvis)
             ui.detail_scroll = math.max(0, math.min(max_dscroll, ui.detail_scroll + step))
             build_window()
             return true
