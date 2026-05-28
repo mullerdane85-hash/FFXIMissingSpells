@@ -1648,24 +1648,36 @@ local function move_selection(delta)
 end
 
 windower.register_event('keyboard', function(dik, pressed, flags, blocked)
-    if blocked then return end
-    if not pressed then return end
+    if blocked then return false end
 
     local info = windower.ffxi.get_info()
     local chat_open = info and info.chat_open
-    if chat_open then return end
+    if chat_open then return false end
 
+    -- U toggles the window (only on press)
     if dik == DIK_U then
-        toggle_window()
-        return
+        if pressed then toggle_window() end
+        return true
     end
 
-    -- Arrow nav only when the window is visible
-    if not settings.visible then return end
-    if dik == DIK_UP   then move_selection(-1)  end
-    if dik == DIK_DOWN then move_selection(1)   end
-    if dik == DIK_PGUP then move_selection(-VISIBLE_ROWS) end
-    if dik == DIK_PGDN then move_selection( VISIBLE_ROWS) end
+    -- Arrow / page nav: only when the window is visible. We return TRUE
+    -- (consumed) for BOTH the press and the release so FFXI doesn't
+    -- still see the keyup and rotate the camera. Without this, the
+    -- arrow keys fell through to the game's camera-control binding.
+    if not settings.visible then return false end
+    if dik == DIK_UP   or dik == DIK_DOWN
+       or dik == DIK_PGUP or dik == DIK_PGDN then
+        if pressed then
+            if     dik == DIK_UP   then move_selection(-1)
+            elseif dik == DIK_DOWN then move_selection(1)
+            elseif dik == DIK_PGUP then move_selection(-VISIBLE_ROWS)
+            elseif dik == DIK_PGDN then move_selection( VISIBLE_ROWS)
+            end
+        end
+        return true   -- consume so the game doesn't process the same key
+    end
+
+    return false
 end)
 
 -- ---------------------------------------------------------------------------
