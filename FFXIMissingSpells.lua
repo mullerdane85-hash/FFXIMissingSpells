@@ -960,10 +960,9 @@ local function build_window()
             can_dn and C_SCROLL_TXT or C_SCROLL_TXT_OFF, 11, true)
         ui.rect.scroll_dn = { x = btn_x, y = dn_y, w = btn_w, h = SCROLL_BTN_H, enabled = can_dn }
 
-        local total_scroll = #rows - VISIBLE_ROWS
-        local progress = (total_scroll > 0) and math.floor(100 * ui.scroll / total_scroll) or 0
+        -- "1-22 / 35" already says where you are; the % was redundant
         ui.el.scroll_pos = make_text(
-            string.format('%d-%d / %d   %d%%', ui.scroll + 1, ui.scroll + visible, #rows, progress),
+            string.format('%d-%d / %d', ui.scroll + 1, ui.scroll + visible, #rows),
             tb_x + PAD, up_y + 4, C_SUMMARY, 10, false)
     end
 
