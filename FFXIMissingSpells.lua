@@ -1302,7 +1302,11 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
         -- Count the lines so we can size the bg correctly.
         local line_count = 1
         for _ in full:gmatch('\n') do line_count = line_count + 1 end
-        local w = TOOLTIP_WIDTH_CHARS * 7 + 16
+        -- 9px/char is a generous estimate for Arial 10pt — characters
+        -- like M / W are wider than the previous 7px estimate, which
+        -- was causing the bg to be too narrow and the right side of
+        -- long lines to "spill out" of the bg.
+        local w = TOOLTIP_WIDTH_CHARS * 9 + 24
         local h = line_count * 14 + 12
         ui.tooltip_bg:size(w, h)
         ui.tooltip_for = spell_name
@@ -1310,17 +1314,17 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
         ui._tooltip_h  = h
     end
 
-    -- Position: anchor the tooltip to the addon's own panel rather than
-    -- the cursor — that way it can never escape onto the desktop, and
-    -- moves with the window when the user drags it.
-    --
-    -- Default: attach to the RIGHT edge of the panel, vertically aligned
-    -- with the cursor's Y so it tracks which row is being hovered.
-    -- If the right edge would push past the screen width, flip to the
-    -- LEFT edge of the panel instead.
-    local windower_settings = windower.get_windower_settings()
-    local res_w = (windower_settings and windower_settings.ui_x_res) or 1920
-    local res_h = (windower_settings and windower_settings.ui_y_res) or 1080
+    -- Position the tooltip beside the panel. Strategy:
+    --   1. Detect the in-game UI resolution (FFXI window) — try several
+    --      Windower setting fields because the exact name differs across
+    --      versions / configs.
+    --   2. Pick the side (right or left of panel) with more space.
+    --   3. After placing, FINAL clamp so the tooltip is fully within the
+    --      UI rectangle — this is the belt-and-suspenders that catches
+    --      any case where our resolution detection is off.
+    local ws = windower.get_windower_settings() or {}
+    local res_w = ws.ui_x_res or ws.x_res or 1920
+    local res_h = ws.ui_y_res or ws.y_res or 1080
     local tw    = ui._tooltip_w or 0
     local th    = ui._tooltip_h or 0
     local px    = settings.pos.x
@@ -1329,22 +1333,26 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
     local ph    = ui.total_h or 0
     local gap   = 8
 
-    -- Horizontal: right of panel preferred; flip left if it would overflow
-    local tx = px + pw + gap
-    if tx + tw > res_w then
-        tx = px - tw - gap        -- flip to the left of the panel
-        if tx < 0 then
-            tx = math.max(0, res_w - tw)  -- last resort: pin to right edge of screen
-        end
+    -- Choose side with more available space
+    local space_right = res_w - (px + pw + gap)
+    local space_left  = px - gap
+    local tx
+    if space_right >= tw or space_right >= space_left then
+        tx = px + pw + gap                 -- prefer right side
+    else
+        tx = px - tw - gap                 -- left side has more room
     end
-    -- Vertical: align tooltip top with cursor Y, but clamp to screen
+
+    -- Vertical: align tooltip near the hovered row
     local ty = mouse_y - 10
-    if ty + th > res_h then ty = math.max(0, res_h - th) end
-    if ty < 0 then ty = 0 end
-    -- Also clamp to within the addon panel's vertical span so the tooltip
-    -- isn't floating way above or below the spells it describes.
-    if ty + th > py + ph + 50 then ty = math.max(py, py + ph + 50 - th) end
-    if ty < py - 10 then ty = py - 10 end
+
+    -- FINAL clamp — ensure the entire bg fits inside the UI rect even if
+    -- the side-choice math was wrong (e.g. resolution underestimated,
+    -- both sides too narrow, etc.).
+    if tx + tw > res_w then tx = res_w - tw end
+    if tx < 0           then tx = 0          end
+    if ty + th > res_h then ty = res_h - th end
+    if ty < 0           then ty = 0          end
 
     ui.tooltip_bg:pos(tx, ty)
     ui.tooltip_text:pos(tx + 8, ty + 6)
