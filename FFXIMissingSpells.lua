@@ -49,6 +49,42 @@ local spell_acquisition = require('libs/acquisition')
 -- tooltip below the cursor so the in-row tag stays compact.
 local spell_acquisition_full = require('libs/acquisition_full')
 
+-- Hand-curated additions for spells that weren't in the original CSV
+-- (SMN avatars, BLM/RDM tier-V upgrades, BRD higher-tier songs, NIN
+-- "Ni"/"San" scrolls, a few singletons). These entries get used for
+-- BOTH the in-row tag and the full hover tooltip.
+local spell_acquisition_extra = require('libs/acquisition_extra')
+
+-- Helper: short tag for a spell name. Tries the curated extras first,
+-- then the CSV-derived short table, then derives a BLU family name
+-- from the full-detail text if the spell is a Blue Magic learn, then
+-- falls back to ''.
+local function acquisition_tag_for(spell_name)
+    if not spell_name then return '' end
+    -- Curated extras: use as-is (truncate to keep the in-row column
+    -- readable — the tooltip still shows the full text).
+    local x = spell_acquisition_extra[spell_name]
+    if x then return x:sub(1, 30) end
+    -- For BLU spells the CSV's short-tag fallback was just "Blue Magic",
+    -- which is unhelpful in the column. Pull the [Family: X] from the
+    -- full detail and surface it as "BLU: <family>".
+    local full = spell_acquisition_full[spell_name]
+    if full then
+        local family = full:match('Blue Magic %[Family: ([^%]]+)%]')
+        if family then return 'BLU: ' .. family end
+    end
+    return spell_acquisition[spell_name] or ''
+end
+
+-- Helper: full detail (tooltip text). Prefers extras over CSV; falls
+-- back to '' when nothing is known for that spell.
+local function acquisition_full_for(spell_name)
+    if not spell_name then return '' end
+    return spell_acquisition_extra[spell_name]
+        or spell_acquisition_full[spell_name]
+        or ''
+end
+
 -- ---------------------------------------------------------------------------
 -- Tab list across the top of the window. 'TRUST' is special — it's not a
 -- res.jobs entry, it's the original FFXIMissingTrust functionality folded
@@ -989,7 +1025,7 @@ local function build_window()
                 local lv_str    = string.format('%s [Lv %2d]', prefix, entry.level)
                 local lv_text   = make_text(lv_str, lv_col_x, ry + 2, C_LEVEL, 10)
                 local name_text = make_text(entry.name, name_col_x, ry + 2, color, 10)
-                local acq_tag   = spell_acquisition[entry.name] or ''
+                local acq_tag   = acquisition_tag_for(entry.name)
                 local acq_text  = make_text(acq_tag, acq_col_x, ry + 2, C_ACQUIRE, 10, false)
                 local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
                 -- Hit-rect so the mouse handler can show the tooltip when
@@ -1092,7 +1128,7 @@ end
 -- from the mouse-move handler.
 -- ---------------------------------------------------------------------------
 function update_tooltip(spell_name, mouse_x, mouse_y)
-    local detail = spell_name and spell_acquisition_full[spell_name] or nil
+    local detail = spell_name and acquisition_full_for(spell_name) or nil
     if not detail or detail == '' then
         -- Hide if previously visible
         if ui.tooltip_visible then
