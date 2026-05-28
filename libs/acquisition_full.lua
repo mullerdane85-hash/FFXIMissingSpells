@@ -1,7 +1,13 @@
 -- Auto-generated from formatted_spells.csv. Maps spell.en -> the full
 -- acquisition detail string (vendor names, quest names, NPC coords,
--- gil prices, monster lists, etc.) for the hover tooltip in
--- FFXIMissingSpells. Indexed by spell.en; falls back to '' when missing.
+-- gil prices, monster lists, etc.) shown in the click-locked detail
+-- pane in FFXIMissingSpells. Indexed by spell.en; falls back to ''
+-- when missing.
+--
+-- Source data: this entire table is the work of ISOLRAINE @ ASURA.
+-- Every NPC, location, gil price, monster, BCNM, and Blue Magic mob
+-- line came from Isolraine's spell-acquisition CSV. Massive credit —
+-- the addon's "where to get" feature exists because of these tables.
 return {
     ['Absorb-ACC'] = 'Monster Drop, Monster Drop [ Orcish Neckchopper ], Purchasable [ Mazween - Aht Urhgan Whitegate - (G-7) - 44,000 Gil ]',
     ['Absorb-AGI'] = 'Monster Drop, Monster Drop (BCNM/Instance), Monster Drop [ Orcish Zerker / Goblin Reaper / Dark Stalker / Ka / Demon Knight / Fallen Knight / Demon General / Specter / Shade / Rot Prowler / Fallen Officer / Goblin Franctireur / Orcish Beastrider / Doom Soldier / Schnitter / Mummy / Ghoul / Fallen Soldier / Wight / Lost Soul / Enchanted Bones / Fallen Evacuee / Hobgoblin Alastor / Ghast / Mythril Quadav ]',

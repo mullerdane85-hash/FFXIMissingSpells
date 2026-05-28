@@ -1,7 +1,14 @@
 -- Auto-generated from formatted_spells.csv. Maps spell.en -> a short
--- "where to get" tag for the middle column in the FFXIMissingSpells window.
--- Sources are condensed from the CSV (which had very long monster lists);
--- combinations like "Drop / Vendor", "Quest / BCNM", "Cipher" etc.
+-- "where to get" tag used by the click-locked detail pane in the
+-- FFXIMissingSpells window. Sources are condensed from the CSV (which
+-- had very long monster lists); combinations like "Drop / Vendor",
+-- "Quest / BCNM", "Cipher" etc.
+--
+-- Source data: every vendor name, NPC location, gil price, monster
+-- drop, BCNM, and Blue Magic mob list comes from the spell database
+-- provided by ISOLRAINE @ ASURA. Full credit to Isolraine for the
+-- tables that make this addon useful — without that work the detail
+-- pane would just be empty.
 return {
     ['Absorb-ACC'] = 'Vendor / Drop',
     ['Absorb-AGI'] = 'BCNM / Drop',

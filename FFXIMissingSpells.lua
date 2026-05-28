@@ -39,14 +39,21 @@ local res    = require('resources')
 local texts  = require('texts')
 local images = require('images')
 
--- Acquisition tags: where each spell comes from, condensed from the
--- full CSV the user provided ("Drop / Vendor", "Quest / BCNM", etc).
--- Indexed by spell.en. Falls back to '' if no entry.
+-- =============================================================================
+-- Spell-acquisition data tables.
+--
+-- The two main tables (acquisition.lua + acquisition_full.lua) were generated
+-- from a CSV provided by ISOLRAINE @ ASURA. Every vendor name, NPC location,
+-- gil price, monster drop, BCNM source, and Blue Magic mob list shown in the
+-- detail pane comes from Isolraine's tables — full credit there. See README
+-- for the prominent credit block.
+-- =============================================================================
+
+-- Short tag (e.g. "Drop / Vendor", "Quest / BCNM"). Indexed by spell.en.
 local spell_acquisition = require('libs/acquisition')
 
--- Full acquisition detail (the entire CSV row's text — vendor names,
--- NPC coords, gil prices, monster lists, etc.). Shown on the hover
--- tooltip below the cursor so the in-row tag stays compact.
+-- Full acquisition detail (vendor names, NPC coords, gil prices, mob lists).
+-- Shown in the click-locked detail pane.
 local spell_acquisition_full = require('libs/acquisition_full')
 
 -- Hand-curated additions for spells that weren't in the original CSV

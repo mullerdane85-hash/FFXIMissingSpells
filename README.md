@@ -105,14 +105,19 @@ old `//mt` commands, they still work.
 
 ## Credits
 
-- The data layer cribs from `resources/spells.xml` (Windower's bundled
-  spell table) and `windower.ffxi.get_spells()` (your live spell book),
-  same approach the **Spellbook** addon pioneered. Credit to the
-  Spellbook author for the original "list the player's known spells"
-  pattern that this addon extends with the missing-list flip side.
-  (Author name to be filled in — see the repo's contributors.)
+- **Isolraine @ Asura** — provided the entire spell-acquisition
+  database (`formatted_spells.csv` → `libs/acquisition.lua` and
+  `libs/acquisition_full.lua`). Every vendor name, NPC location,
+  gil price, monster drop list, BCNM source, and Blue Magic mob
+  list that the addon shows comes from Isolraine's tables. Without
+  that work this would just be a list of spell names with no
+  context for where to get them. Massive thanks.
+- The data layer also cribs from `resources/spells.xml` (Windower's
+  bundled spell table) and `windower.ffxi.get_spells()` (your live
+  spell book), same approach the **Spellbook** addon pioneered.
 - Trust → job and trust → role tables curated from BG-Wiki.
 
 ## Author
 
-Jason (2026). Built for the FFXIWindower personal repo.
+TWinn22 (GitHub: TWinn22 / FFXI: Jason, 2026). Built for the
+FFXIWindower personal repo.
