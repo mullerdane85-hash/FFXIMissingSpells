@@ -1336,15 +1336,29 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
         local body   = format_acquisition(detail)
         local full   = header .. '\n' .. body
         ui.tooltip_text:text(full)
-        -- Count the lines so we can size the bg correctly.
+
+        -- Size the bg to the actual rendered text. texts.new objects
+        -- expose :extents() which returns the rendered pixel size
+        -- (accounting for the user's actual font/UI scale) — much more
+        -- accurate than my per-char estimate. Fall back to a generous
+        -- estimate if extents returns nothing (e.g. text hasn't been
+        -- laid out yet on first call).
+        local text_w, text_h
+        if ui.tooltip_text.extents then
+            text_w, text_h = ui.tooltip_text:extents()
+        end
         local line_count = 1
         for _ in full:gmatch('\n') do line_count = line_count + 1 end
-        -- 9px/char is a generous estimate for Arial 10pt — characters
-        -- like M / W are wider than the previous 7px estimate, which
-        -- was causing the bg to be too narrow and the right side of
-        -- long lines to "spill out" of the bg.
-        local w = TOOLTIP_WIDTH_CHARS * 9 + 24
-        local h = line_count * 14 + 12
+        if not text_w or text_w < 50 then
+            -- Fallback estimate. 12 px/char is generous for Arial 10pt;
+            -- wider than needed for most lines but never too narrow.
+            text_w = TOOLTIP_WIDTH_CHARS * 12
+        end
+        if not text_h or text_h < 10 then
+            text_h = line_count * 14
+        end
+        local w = text_w + 24   -- horizontal padding inside the bg
+        local h = text_h + 14   -- vertical padding
         ui.tooltip_bg:size(w, h)
         ui.tooltip_for = spell_name
         ui._tooltip_w  = w
