@@ -840,10 +840,13 @@ end
 -- ---------------------------------------------------------------------------
 -- Wrap width for the right-side detail pane. DETAIL_W is ~340 px; at
 -- Arial 10pt with ~9 px per character that gives ~36 visible chars per
--- line. Lower bound on lines so very long acquisition strings (e.g.
--- Absorb-Attri's huge monster list) don't blow out the panel height.
+-- line. TOOLTIP_MAX_LINES is now an upper bound on the FULL formatted
+-- text — content longer than that is appended with " ..." but the
+-- panel paginates anything beyond the visible window so the scrollbar
+-- still works.
 local TOOLTIP_WIDTH_CHARS = 36
-local TOOLTIP_MAX_LINES   = 32
+local TOOLTIP_MAX_LINES   = 200
+local DETAIL_VISIBLE_LINES = 26
 
 -- Split a string on top-level commas (commas that are NOT inside brackets
 -- or parens). The CSV format puts method names separated by commas at
@@ -1028,6 +1031,8 @@ local ui = {
     -- hover tooltip. Lives inside the main panel so it always stays on
     -- screen and never gets clipped.
     detail_text    = nil,
+    detail_scroll  = 0,        -- vertical offset (in lines) into the formatted detail
+    detail_total   = 0,        -- total formatted lines available for the current selection
 }
 
 local function calc_dims(row_count)
@@ -1264,24 +1269,79 @@ local function build_window()
     end
 
     -- =========================================================================
-    -- Right-side detail pane (click-locked acquisition info)
+    -- Right-side detail pane (click-locked acquisition info, scrollable)
     -- =========================================================================
     local detail_x = tb_x + list_w + PAD
     local detail_y = body_y + PAD
     local sel = settings.selected_spell or ''
-    local detail_content
+    -- Build the full content as a list of lines so we can paginate it.
+    local full_lines
     if sel == '' then
-        detail_content = '\\cs(150,180,220)Click a spell to lock its acquisition info here.\\cr'
+        full_lines = { '\\cs(150,180,220)Click a spell to lock its acquisition info here.\\cr' }
     else
         local raw = acquisition_full_for(sel)
         if raw == '' then
-            detail_content = '\\cs(255,220,140)'..sel..'\\cr\n\\cs(180,180,180)(no acquisition info available)\\cr'
+            full_lines = {
+                '\\cs(255,220,140)'..sel..'\\cr',
+                '\\cs(180,180,180)(no acquisition info available)\\cr',
+            }
         else
-            local body  = format_acquisition(raw)
-            detail_content = '\\cs(255,220,140)'..sel..'\\cr\n'..body
+            full_lines = { '\\cs(255,220,140)'..sel..'\\cr' }
+            for line in (format_acquisition(raw) .. '\n'):gmatch('([^\n]*)\n') do
+                table.insert(full_lines, line)
+            end
         end
     end
-    ui.detail_text = make_text(detail_content, detail_x, detail_y, { 255, 245, 245, 250 }, 10, false)
+    ui.detail_total = #full_lines
+
+    -- Clamp scroll to valid range so re-rendering doesn't leave an
+    -- off-end window when the selection changes to a shorter detail.
+    local max_dscroll = math.max(0, ui.detail_total - DETAIL_VISIBLE_LINES)
+    if ui.detail_scroll < 0 then ui.detail_scroll = 0 end
+    if ui.detail_scroll > max_dscroll then ui.detail_scroll = max_dscroll end
+
+    -- Slice the lines to the visible window
+    local sliced = {}
+    for i = 1, DETAIL_VISIBLE_LINES do
+        local idx = ui.detail_scroll + i
+        if not full_lines[idx] then break end
+        table.insert(sliced, full_lines[idx])
+    end
+    ui.detail_text = make_text(table.concat(sliced, '\n'),
+                               detail_x, detail_y, { 255, 245, 245, 250 }, 10, false)
+
+    -- Scroll buttons for the detail pane (only when content overflows).
+    -- Mirror the list-side scroll buttons' style + position so the
+    -- interaction feels consistent.
+    if ui.detail_total > DETAIL_VISIBLE_LINES then
+        local d_btn_w = 26
+        local d_btn_x = tb_x + tb_w - PAD - d_btn_w - 2
+        local d_up_y  = detail_y + DETAIL_VISIBLE_LINES * 14 + 4
+        local d_dn_y  = d_up_y + SCROLL_BTN_H + 2
+
+        local can_du = ui.detail_scroll > 0
+        local can_dd = ui.detail_scroll < max_dscroll
+
+        ui.el.detail_scroll_up_bg = make_bg(d_btn_x, d_up_y, d_btn_w, SCROLL_BTN_H,
+            can_du and C_SCROLL_BG or C_SCROLL_OFF)
+        ui.el.detail_scroll_up_txt = make_text('▲', d_btn_x + 7, d_up_y + 3,
+            can_du and C_SCROLL_TXT or C_SCROLL_TXT_OFF, 11, true)
+        ui.rect.detail_scroll_up = { x = d_btn_x, y = d_up_y, w = d_btn_w, h = SCROLL_BTN_H, enabled = can_du }
+
+        ui.el.detail_scroll_dn_bg = make_bg(d_btn_x, d_dn_y, d_btn_w, SCROLL_BTN_H,
+            can_dd and C_SCROLL_BG or C_SCROLL_OFF)
+        ui.el.detail_scroll_dn_txt = make_text('▼', d_btn_x + 7, d_dn_y + 3,
+            can_dd and C_SCROLL_TXT or C_SCROLL_TXT_OFF, 11, true)
+        ui.rect.detail_scroll_dn = { x = d_btn_x, y = d_dn_y, w = d_btn_w, h = SCROLL_BTN_H, enabled = can_dd }
+    else
+        -- No overflow — make sure stale rects don't trigger hit-testing
+        ui.rect.detail_scroll_up = nil
+        ui.rect.detail_scroll_dn = nil
+    end
+    -- Hit-rect for the entire detail pane so the mouse-wheel handler
+    -- knows when the cursor is over it (separate from the list scroll).
+    ui.rect.detail_pane = { x = detail_x - PAD, y = detail_y,
+                            w = DETAIL_W, h = body_h - PAD * 2 }
 
     -- Show everything
     for _, e in pairs(ui.el) do show(e) end
@@ -1407,13 +1467,29 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
             scroll_by(math.floor(VISIBLE_ROWS / 2))
             return true
         end
+        -- Detail-pane scroll buttons (separate up/down for the right
+        -- column; tested BEFORE the list scroll so a click in the
+        -- detail-pane buttons doesn't fall through).
+        if ui.rect.detail_scroll_up and in_rect(x, y, ui.rect.detail_scroll_up)
+           and ui.rect.detail_scroll_up.enabled then
+            ui.detail_scroll = math.max(0, ui.detail_scroll - math.floor(DETAIL_VISIBLE_LINES / 2))
+            build_window()
+            return true
+        end
+        if ui.rect.detail_scroll_dn and in_rect(x, y, ui.rect.detail_scroll_dn)
+           and ui.rect.detail_scroll_dn.enabled then
+            ui.detail_scroll = ui.detail_scroll + math.floor(DETAIL_VISIBLE_LINES / 2)
+            build_window()
+            return true
+        end
         -- Row click: lock the clicked spell as the detail pane's subject.
-        -- The clicked spell's acquisition info will persist in the right
-        -- pane until the user picks another (GSUI-style click-locked
-        -- info column, replaces the old hover tooltip).
+        -- Resets detail_scroll so the new spell's content starts at the top.
         for _, row in ipairs(ui.rows) do
             local r = row.rect
             if r and r.spell_name and in_rect(x, y, r) then
+                if settings.selected_spell ~= r.spell_name then
+                    ui.detail_scroll = 0
+                end
                 settings.selected_spell = r.spell_name
                 config.save(settings)
                 build_window()
@@ -1423,8 +1499,17 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
         return true
     end
 
-    -- Scroll wheel
+    -- Scroll wheel: route to whichever column the cursor is over.
+    -- detail pane > list (default).
     if mtype == 10 then
+        if ui.rect.detail_pane and in_rect(x, y, ui.rect.detail_pane)
+           and ui.detail_total > DETAIL_VISIBLE_LINES then
+            local step = (delta > 0) and -3 or 3
+            local max_dscroll = math.max(0, ui.detail_total - DETAIL_VISIBLE_LINES)
+            ui.detail_scroll = math.max(0, math.min(max_dscroll, ui.detail_scroll + step))
+            build_window()
+            return true
+        end
         scroll_by(delta > 0 and -3 or 3)
         return true
     end
