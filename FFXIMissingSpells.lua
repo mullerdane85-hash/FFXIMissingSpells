@@ -554,23 +554,60 @@ end
 -- For the special 'TRUST' tab, defers to all_trusts() above. Returns a
 -- list of { id, name, level, skill, type, is_trust?, trust_job?, trust_desc? }
 -- sorted by level then name (trusts: alphabetical).
+--
+-- Filter: spells with `unlearnable=true` in res.spells are mob-only /
+-- unreleased / placeholder entries that players can't normally acquire
+-- (e.g. Curse, Bio IV/V, Banishga IV/V). Skip them — UNLESS:
+--   (a) the player already KNOWS the spell (something put it in their
+--       spell book somehow, so we shouldn't hide it from them), or
+--   (b) a SEPARATE entry with the same spell.en exists that IS
+--       learnable (e.g. Sleepga has both id=273 learnable and id=363
+--       unlearnable duplicate — we want to show the learnable one).
+-- This matches what other "spellbook" addons display.
 local function all_spells_for_job(ens, lv_cap)
     if ens == 'TRUST' then return all_trusts() end
     lv_cap = lv_cap or 99
     local jid = job_id_by_ens[ens]
     if not jid then return {} end
-    local out = {}
+    local known = windower.ffxi.get_spells() or {}
+
+    -- First pass: which spell.en values have a learnable entry somewhere
+    -- in res.spells? Used to dedupe Sleepga-style double entries.
+    local has_learnable = {}
+    for _, spell in pairs(res.spells) do
+        if spell and spell.en and spell.type ~= 'Trust' and not spell.unlearnable then
+            has_learnable[spell.en] = true
+        end
+    end
+
+    -- Second pass: collect this job's spells, applying the filter and
+    -- deduping by name (so Sleepga doesn't show twice).
+    local out, seen_en = {}, {}
     for id, spell in pairs(res.spells) do
-        if spell and spell.en and spell.levels and spell.type ~= 'Trust' then
+        if spell and spell.en and spell.levels and spell.type ~= 'Trust'
+           and not seen_en[spell.en] then
             local lv = spell.levels[jid]
             if lv and lv >= 0 and lv <= lv_cap then
-                table.insert(out, {
-                    id    = id,
-                    name  = spell.en,
-                    level = lv,
-                    skill = skill_label(spell),
-                    type  = spell.type or '',
-                })
+                local show = false
+                if not spell.unlearnable then
+                    show = true                    -- normal learnable spell
+                elseif known[id] then
+                    show = true                    -- player has it, don't hide it
+                elseif has_learnable[spell.en] then
+                    show = false                   -- a learnable copy exists, defer to it
+                else
+                    show = false                   -- mob-only / unreleased
+                end
+                if show then
+                    seen_en[spell.en] = true
+                    table.insert(out, {
+                        id    = id,
+                        name  = spell.en,
+                        level = lv,
+                        skill = skill_label(spell),
+                        type  = spell.type or '',
+                    })
+                end
             end
         end
     end
