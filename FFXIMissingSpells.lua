@@ -44,6 +44,11 @@ local images = require('images')
 -- Indexed by spell.en. Falls back to '' if no entry.
 local spell_acquisition = require('libs/acquisition')
 
+-- Full acquisition detail (the entire CSV row's text — vendor names,
+-- NPC coords, gil prices, monster lists, etc.). Shown on the hover
+-- tooltip below the cursor so the in-row tag stays compact.
+local spell_acquisition_full = require('libs/acquisition_full')
+
 -- ---------------------------------------------------------------------------
 -- Tab list across the top of the window. 'TRUST' is special — it's not a
 -- res.jobs entry, it's the original FFXIMissingTrust functionality folded
@@ -754,6 +759,36 @@ local function cmd_find_chat(query)
 end
 
 -- ---------------------------------------------------------------------------
+-- Tooltip helpers
+-- ---------------------------------------------------------------------------
+-- Long acquisition details are word-wrapped to ~60-char lines so the
+-- tooltip stays at a readable width and doesn't run off screen.
+local TOOLTIP_WIDTH_CHARS = 60
+local TOOLTIP_MAX_LINES   = 24
+
+local function word_wrap(text, width)
+    local out_lines = {}
+    local line = ''
+    for word in text:gmatch('%S+') do
+        if #line == 0 then
+            line = word
+        elseif #line + 1 + #word <= width then
+            line = line..' '..word
+        else
+            table.insert(out_lines, line)
+            line = word
+        end
+    end
+    if line ~= '' then table.insert(out_lines, line) end
+    -- Cap to keep the tooltip from becoming taller than the screen
+    if #out_lines > TOOLTIP_MAX_LINES then
+        out_lines[TOOLTIP_MAX_LINES] = out_lines[TOOLTIP_MAX_LINES]..' ...'
+        for i = TOOLTIP_MAX_LINES + 1, #out_lines do out_lines[i] = nil end
+    end
+    return table.concat(out_lines, '\n'), #out_lines
+end
+
+-- ---------------------------------------------------------------------------
 -- Window UI
 -- ---------------------------------------------------------------------------
 
@@ -765,6 +800,12 @@ local ui = {
     rect      = {},
     total_w   = PANEL_W,
     total_h   = 0,
+    -- Tooltip elements (lazy-created the first time it's shown so the
+    -- normal render path doesn't pay the cost when nothing's hovered).
+    tooltip_bg     = nil,
+    tooltip_text   = nil,
+    tooltip_for    = nil,    -- spell.en the tooltip currently shows for
+    tooltip_visible = false,
 }
 
 local function calc_dims(row_count)
@@ -783,6 +824,13 @@ local function destroy_window()
     for _, r in ipairs(ui.rows) do
         destroy(r.bg); destroy(r.lv); destroy(r.name); destroy(r.acq); destroy(r.skill)
     end
+    -- Tooltip pieces (don't destroy, just hide — keep them around for
+    -- the next hover). Rebuilding the window invalidates the rows so
+    -- any visible tooltip would refer to a deleted row anyway.
+    if ui.tooltip_bg   then ui.tooltip_bg:hide()   end
+    if ui.tooltip_text then ui.tooltip_text:hide() end
+    ui.tooltip_visible = false
+    ui.tooltip_for     = nil
     ui.el = {}
     ui.rows = {}
     ui.rect = {}
@@ -944,8 +992,14 @@ local function build_window()
                 local acq_tag   = spell_acquisition[entry.name] or ''
                 local acq_text  = make_text(acq_tag, acq_col_x, ry + 2, C_ACQUIRE, 10, false)
                 local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
+                -- Hit-rect so the mouse handler can show the tooltip when
+                -- the cursor is over this row.
+                local hit_rect = {x = row_x - 2, y = ry - 1,
+                                  w = tb_w - PAD * 2 + 4, h = ROW_H,
+                                  spell_name = entry.name}
                 table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text,
-                                        acq = acq_text, skill = skill_text })
+                                        acq = acq_text, skill = skill_text,
+                                        rect = hit_rect })
             end
         end
     end
@@ -1031,13 +1085,81 @@ local function scroll_by(delta)
     refresh_window()
 end
 
+-- ---------------------------------------------------------------------------
+-- Hover tooltip: show the FULL acquisition detail next to the cursor.
+-- Lazy-creates the bg + text objects on first show so the cost only lands
+-- once. Hides when no spell name is supplied. update_tooltip is called
+-- from the mouse-move handler.
+-- ---------------------------------------------------------------------------
+function update_tooltip(spell_name, mouse_x, mouse_y)
+    local detail = spell_name and spell_acquisition_full[spell_name] or nil
+    if not detail or detail == '' then
+        -- Hide if previously visible
+        if ui.tooltip_visible then
+            if ui.tooltip_bg then ui.tooltip_bg:hide() end
+            if ui.tooltip_text then ui.tooltip_text:hide() end
+            ui.tooltip_visible = false
+            ui.tooltip_for = nil
+        end
+        return
+    end
+
+    -- Lazy-create
+    if not ui.tooltip_bg then
+        ui.tooltip_bg = make_bg(0, 0, 10, 10, { 240, 18, 28, 60 })
+        ui.tooltip_text = make_text('', 0, 0, { 255, 235, 235, 245 }, 10, false)
+        -- Start hidden — the show() further below toggles them visible
+        -- when there's actually content to show.
+        ui.tooltip_bg:hide()
+        ui.tooltip_text:hide()
+    end
+
+    -- Only rebuild text when the hovered spell changes (mouse move while
+    -- still on the same row doesn't re-wrap every frame).
+    if ui.tooltip_for ~= spell_name then
+        local header = '\\cs(150,220,255)' .. spell_name .. '\\cr\n'
+        local wrapped, line_count = word_wrap(detail, TOOLTIP_WIDTH_CHARS)
+        ui.tooltip_text:text(header .. wrapped)
+        -- Size the bg to ~ width of TOOLTIP_WIDTH_CHARS * 6.5 px (Consolas 10)
+        -- plus padding, height = (lines + 1 header) * line_height + padding
+        local w = TOOLTIP_WIDTH_CHARS * 7 + 16
+        local h = (line_count + 1) * 14 + 12
+        ui.tooltip_bg:size(w, h)
+        ui.tooltip_for = spell_name
+        ui._tooltip_w  = w
+        ui._tooltip_h  = h
+    end
+
+    -- Position: offset right + down from the cursor so the tooltip doesn't
+    -- sit under it. If it would run off the right or bottom of the screen,
+    -- flip to the other side of the cursor.
+    local res_w, res_h = windower.get_windower_settings().ui_x_res or 1920,
+                         windower.get_windower_settings().ui_y_res or 1080
+    local tx = mouse_x + 16
+    local ty = mouse_y + 16
+    if tx + (ui._tooltip_w or 0) > res_w then tx = mouse_x - (ui._tooltip_w or 0) - 8 end
+    if ty + (ui._tooltip_h or 0) > res_h then ty = mouse_y - (ui._tooltip_h or 0) - 8 end
+    if tx < 0 then tx = 0 end
+    if ty < 0 then ty = 0 end
+
+    ui.tooltip_bg:pos(tx, ty)
+    ui.tooltip_text:pos(tx + 8, ty + 6)
+    if not ui.tooltip_visible then
+        ui.tooltip_bg:show()
+        ui.tooltip_text:show()
+        ui.tooltip_visible = true
+    end
+end
+
 -- Windower mouse event types: 0=move, 1=LMB down, 2=LMB up, 10=wheel.
 -- See SESSION-NOTES gotcha F (FFXIMissingTrust) for full mapping.
 windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     if not settings.visible then return false end
     if blocked then return false end
 
-    -- Mouse MOVE — follow the drag even if the cursor leaves the window
+    -- Mouse MOVE — follow the drag even if the cursor leaves the window.
+    -- Also drive the hover tooltip: detect which row the cursor is over
+    -- and show/hide / update the tooltip's text + position accordingly.
     if mtype == 0 then
         if ui.drag then
             settings.pos.x = x - ui.drag.dx
@@ -1045,6 +1167,18 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
             build_window()
             return true
         end
+        -- Hover detection
+        local hovered_spell = nil
+        if is_over_window(x, y) then
+            for _, row in ipairs(ui.rows) do
+                local r = row.rect
+                if r and in_rect(x, y, r) then
+                    hovered_spell = r.spell_name
+                    break
+                end
+            end
+        end
+        update_tooltip(hovered_spell, x, y)
         return is_over_window(x, y)
     end
 
