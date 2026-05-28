@@ -797,33 +797,174 @@ end
 -- ---------------------------------------------------------------------------
 -- Tooltip helpers
 -- ---------------------------------------------------------------------------
--- Long acquisition details are word-wrapped to ~48-char lines so the
--- tooltip stays at a readable width and reliably fits beside the
--- panel without running off screen. (Was 60; reduced because some
--- screen / FFXI window combos didn't have room for the wider popup.)
+-- Tooltip width target. Each labelled line (e.g. "Vendor:" + a vendor row)
+-- gets word-wrapped to this many characters max; the popup auto-sizes its
+-- height to whatever the wrapped content needs.
 local TOOLTIP_WIDTH_CHARS = 48
-local TOOLTIP_MAX_LINES   = 22
+local TOOLTIP_MAX_LINES   = 28
 
-local function word_wrap(text, width)
-    local out_lines = {}
-    local line = ''
-    for word in text:gmatch('%S+') do
-        if #line == 0 then
-            line = word
-        elseif #line + 1 + #word <= width then
-            line = line..' '..word
-        else
-            table.insert(out_lines, line)
-            line = word
+-- Split a string on top-level commas (commas that are NOT inside brackets
+-- or parens). The CSV format puts method names separated by commas at
+-- depth 0, with details inside brackets that may themselves contain
+-- commas — we want to split the methods apart cleanly.
+local function split_top_level_commas(s)
+    local parts = {}
+    local depth = 0
+    local start = 1
+    for i = 1, #s do
+        local c = s:sub(i, i)
+        if c == '[' or c == '(' then depth = depth + 1
+        elseif c == ']' or c == ')' then depth = depth - 1
+        elseif c == ',' and depth == 0 then
+            table.insert(parts, (s:sub(start, i - 1):gsub('^%s+', ''):gsub('%s+$', '')))
+            start = i + 1
         end
     end
-    if line ~= '' then table.insert(out_lines, line) end
-    -- Cap to keep the tooltip from becoming taller than the screen
+    table.insert(parts, (s:sub(start):gsub('^%s+', ''):gsub('%s+$', '')))
+    return parts
+end
+
+-- Pull "<method>" and "<details inside brackets>" out of one chunk.
+local function parse_method(chunk)
+    local method, details = chunk:match('^(.-)%s*%[(.*)%]%s*$')
+    if not method then
+        return (chunk:gsub('^%s+', ''):gsub('%s+$', '')), nil
+    end
+    method  = method:gsub('^%s+', ''):gsub('%s+$', '')
+    details = details:gsub('^%s+', ''):gsub('%s+$', '')
+    return method, details
+end
+
+-- Friendly label remapping for the section headers.
+local METHOD_LABEL = {
+    ['Monster Drop']               = 'Monster Drops',
+    ['Monster Drop (BCNM/Instance)'] = 'BCNM / Instance Drop',
+    ['Purchasable']                = 'Vendor',
+    ['Quest']                      = 'Quest',
+    ['Mission']                    = 'Mission',
+    ['Trade']                      = 'Trade',
+    ['Reward']                     = 'Reward',
+    ['Crafting']                   = 'Crafting',
+    ['Records of Eminence']        = 'Records of Eminence',
+    ['RoE']                        = 'Records of Eminence',
+    ['Limit Break']                = 'Limit Break',
+    ['Coffer']                     = 'Coffer',
+    ['Treasure Casket']            = 'Treasure Casket',
+    ['Job Point Prog']             = 'Job Point Gift',
+}
+local function method_label(m) return METHOD_LABEL[m] or m end
+
+-- Wrap one line to `width`, preserving its leading whitespace so continuation
+-- lines align with the original indentation.
+local function wrap_line(line, width)
+    if #line <= width then return { line } end
+    local out = {}
+    local indent = line:match('^(%s*)') or ''
+    local rest   = line:sub(#indent + 1)
+    local cont   = indent .. '  '
+    local cur    = indent
+    local first  = true
+    for word in rest:gmatch('%S+') do
+        local sep = first and '' or ' '
+        if #cur + #sep + #word > width and not first then
+            table.insert(out, cur)
+            cur = cont .. word
+            first = false
+        else
+            cur = cur .. sep .. word
+            first = false
+        end
+    end
+    if cur:match('%S') then table.insert(out, cur) end
+    return out
+end
+
+-- Convert a raw CSV detail string into a tooltip-friendly multi-line text:
+-- each acquisition method gets its own labelled header line, with its
+-- details on indented bullet lines below. BLU spells get a custom layout
+-- since their CSV format is different ("Blue Magic [Family: X] (Mobs: ...)").
+local function format_acquisition(text)
+    if not text or text == '' then return '' end
+
+    -- BLU spells
+    if text:find('^Blue Magic %[') then
+        local out = {}
+        local family = text:match('%[Family:%s*([^%]]+)%]')
+        local mobs   = text:match('%(Mobs:%s*Learned from:%s*(.-)%)')
+        table.insert(out, '\\cs(150,220,255)Blue Magic\\cr')
+        if family then
+            for _, l in ipairs(wrap_line('Family: ' .. family, TOOLTIP_WIDTH_CHARS)) do
+                table.insert(out, l)
+            end
+        end
+        if mobs then
+            table.insert(out, '\\cs(180,230,255)Learn from:\\cr')
+            for mob in mobs:gmatch('[^,]+') do
+                local m = mob:gsub('^%s+', ''):gsub('%s+$', '')
+                if m ~= '' then
+                    for _, l in ipairs(wrap_line('  ' .. m, TOOLTIP_WIDTH_CHARS)) do
+                        table.insert(out, l)
+                    end
+                end
+            end
+        end
+        return table.concat(out, '\n')
+    end
+
+    -- Generic: split into methods, group, render each as its own section.
+    local parts = split_top_level_commas(text)
+    local groups = {}              -- method -> list of detail strings
+    local method_order = {}
+    for _, part in ipairs(parts) do
+        local method, details = parse_method(part)
+        if method ~= '' then
+            if not groups[method] then
+                groups[method] = {}
+                table.insert(method_order, method)
+            end
+            if details and details ~= '' then
+                table.insert(groups[method], details)
+            end
+        end
+    end
+
+    local out_lines = {}
+    for _, m in ipairs(method_order) do
+        table.insert(out_lines, '\\cs(150,220,255)' .. method_label(m) .. ':\\cr')
+        local d = groups[m]
+        if #d == 0 then
+            table.insert(out_lines, '  (see in-game wiki for specifics)')
+        else
+            for _, detail in ipairs(d) do
+                -- detail may itself contain "/" or " / " as a separator
+                -- between alternatives (e.g. multiple NPCs). Show each
+                -- alternative on its own bullet to make scanning easier.
+                local first_alt = true
+                for alt in (detail .. ' /'):gmatch('(.-)%s*/%s*') do
+                    local a = alt:gsub('^%s+', ''):gsub('%s+$', '')
+                    if a ~= '' then
+                        for _, l in ipairs(wrap_line('  ' .. a, TOOLTIP_WIDTH_CHARS)) do
+                            table.insert(out_lines, l)
+                        end
+                        first_alt = false
+                    end
+                end
+                if first_alt then
+                    -- No "/" alternatives — show the whole detail wrapped
+                    for _, l in ipairs(wrap_line('  ' .. detail, TOOLTIP_WIDTH_CHARS)) do
+                        table.insert(out_lines, l)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Cap to max lines
     if #out_lines > TOOLTIP_MAX_LINES then
-        out_lines[TOOLTIP_MAX_LINES] = out_lines[TOOLTIP_MAX_LINES]..' ...'
+        out_lines[TOOLTIP_MAX_LINES] = out_lines[TOOLTIP_MAX_LINES] .. ' ...'
         for i = TOOLTIP_MAX_LINES + 1, #out_lines do out_lines[i] = nil end
     end
-    return table.concat(out_lines, '\n'), #out_lines
+    return table.concat(out_lines, '\n')
 end
 
 -- ---------------------------------------------------------------------------
@@ -1152,15 +1293,17 @@ function update_tooltip(spell_name, mouse_x, mouse_y)
     end
 
     -- Only rebuild text when the hovered spell changes (mouse move while
-    -- still on the same row doesn't re-wrap every frame).
+    -- still on the same row doesn't re-format every frame).
     if ui.tooltip_for ~= spell_name then
-        local header = '\\cs(150,220,255)' .. spell_name .. '\\cr\n'
-        local wrapped, line_count = word_wrap(detail, TOOLTIP_WIDTH_CHARS)
-        ui.tooltip_text:text(header .. wrapped)
-        -- Size the bg to ~ width of TOOLTIP_WIDTH_CHARS * 6.5 px (Consolas 10)
-        -- plus padding, height = (lines + 1 header) * line_height + padding
+        local header = '\\cs(255,220,140)' .. spell_name .. '\\cr'
+        local body   = format_acquisition(detail)
+        local full   = header .. '\n' .. body
+        ui.tooltip_text:text(full)
+        -- Count the lines so we can size the bg correctly.
+        local line_count = 1
+        for _ in full:gmatch('\n') do line_count = line_count + 1 end
         local w = TOOLTIP_WIDTH_CHARS * 7 + 16
-        local h = (line_count + 1) * 14 + 12
+        local h = line_count * 14 + 12
         ui.tooltip_bg:size(w, h)
         ui.tooltip_for = spell_name
         ui._tooltip_w  = w
