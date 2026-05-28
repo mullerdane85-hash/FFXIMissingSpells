@@ -39,6 +39,11 @@ local res    = require('resources')
 local texts  = require('texts')
 local images = require('images')
 
+-- Acquisition tags: where each spell comes from, condensed from the
+-- full CSV the user provided ("Drop / Vendor", "Quest / BCNM", etc).
+-- Indexed by spell.en. Falls back to '' if no entry.
+local spell_acquisition = require('libs/acquisition')
+
 -- ---------------------------------------------------------------------------
 -- Tab list across the top of the window. 'TRUST' is special — it's not a
 -- res.jobs entry, it's the original FFXIMissingTrust functionality folded
@@ -364,6 +369,7 @@ local C_OWNED      = { 255, 130, 230, 130 }
 local C_LEVEL      = { 255, 200, 200, 240 }      -- "[Lv 99]" prefix
 local C_SKILL      = { 255, 170, 200, 230 }      -- skill-name column on the right
 local C_UC_DIM     = { 180, 180, 180, 200 }      -- Unity Concord rows (informational)
+local C_ACQUIRE    = { 255, 150, 220, 180 }      -- "where to get" middle column (greenish)
 local C_SCROLL_BG  = { 200, 40,  50,  90  }
 local C_SCROLL_TXT = { 255, 255, 255, 255 }
 local C_SCROLL_OFF = { 80,  40,  50,  90  }
@@ -775,7 +781,7 @@ end
 local function destroy_window()
     for _, e in pairs(ui.el)   do destroy(e) end
     for _, r in ipairs(ui.rows) do
-        destroy(r.bg); destroy(r.lv); destroy(r.name); destroy(r.skill)
+        destroy(r.bg); destroy(r.lv); destroy(r.name); destroy(r.acq); destroy(r.skill)
     end
     ui.el = {}
     ui.rows = {}
@@ -880,18 +886,21 @@ local function build_window()
         ui.el.empty = make_text(msg, row_x, list_y0 + 4, C_OWNED, 11)
     end
 
-    -- Two column layouts depending on tab:
+    -- Column layouts:
     --   Trust:  "- name                  [JOB]   role"
-    --   Spell:  "- [Lv NN]   spell name                 (Skill)"
-    -- Skill column gets ~140px so the longest abbreviation ("Geomancy",
-    -- "Ninjutsu") fits with the right-side panel border instead of running
-    -- past it. Names get the remaining ~370px which is plenty.
-    local lv_col_x    = row_x                 -- spells: prefix + "[Lv NN]"
-    local name_col_x  = row_x + 70            -- spells: spell name
-    local skill_col_x = tb_x + tb_w - PAD - 130 -- spells: skill name (right-ish)
-    local t_name_col_x = row_x                 -- trusts: prefix + name
-    local t_job_col_x  = row_x + 200           -- trusts: [JOB]
-    local t_role_col_x = row_x + 250           -- trusts: role descriptor
+    --   Spell:  "- [Lv NN]   spell name      where-to-get      (Skill)"
+    -- Spell-row columns:
+    --   lv:    prefix + "[Lv NN]"     at row_x          (~70px wide)
+    --   name:  spell.en               at row_x + 70     (~140px wide)
+    --   acq:   where-to-get tag       at row_x + 220    (~190px wide)
+    --   skill: short skill label      right-aligned ~ tb_x + tb_w - PAD - 130
+    local lv_col_x    = row_x
+    local name_col_x  = row_x + 70
+    local acq_col_x   = row_x + 220             -- new middle "where to get" column
+    local skill_col_x = tb_x + tb_w - PAD - 130
+    local t_name_col_x = row_x
+    local t_job_col_x  = row_x + 200
+    local t_role_col_x = row_x + 250
 
     local known = windower.ffxi.get_spells() or {}
     for i = 1, visible do
@@ -932,8 +941,11 @@ local function build_window()
                 local lv_str    = string.format('%s [Lv %2d]', prefix, entry.level)
                 local lv_text   = make_text(lv_str, lv_col_x, ry + 2, C_LEVEL, 10)
                 local name_text = make_text(entry.name, name_col_x, ry + 2, color, 10)
+                local acq_tag   = spell_acquisition[entry.name] or ''
+                local acq_text  = make_text(acq_tag, acq_col_x, ry + 2, C_ACQUIRE, 10, false)
                 local skill_text= make_text(entry.skill, skill_col_x, ry + 2, C_SKILL, 10, false)
-                table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text, skill = skill_text })
+                table.insert(ui.rows, { bg = row_bg, lv = lv_text, name = name_text,
+                                        acq = acq_text, skill = skill_text })
             end
         end
     end
@@ -972,6 +984,7 @@ local function build_window()
         if r.bg then show(r.bg) end
         show(r.lv)
         show(r.name)
+        if r.acq then show(r.acq) end   -- new "where to get" column (spell rows only)
         show(r.skill)
     end
 end
